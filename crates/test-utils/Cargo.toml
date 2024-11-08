@@ -1,0 +1,19 @@
+[package]
+name = "test-utils"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+aya = "0.13.0"
+aya-log = "0.2"
+env_logger = "0.11"
+etherparse.workspace = true
+futures = "0.3"
+libc.workspace = true
+netlink-packet-route = "0.19.0"
+network-types = "0.0.7"
+object = "0.36"
+rtnetlink = "0.14.1"
+tokio.workspace = true
+xdp.workspace = true

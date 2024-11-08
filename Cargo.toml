@@ -6,3 +6,22 @@ description = "AF_XDP socket support without C"
 license = "Apache-2.0 OR MIT"
 
 [dependencies]
+memmap2 = "0.9"
+libc.workspace = true
+
+[dev-dependencies]
+test-utils.workspace = true
+tokio.workspace = true
+
+[workspace]
+members = [
+    ".",
+    "crates/test-utils",
+]
+
+[workspace.dependencies]
+libc = "0.2"
+test-utils = { path = "./crates/test-utils" }
+tokio = { version = "1.41.0", default-features = false, features = ["macros", "rt-multi-thread"] }
+xdp = { path = "." }
+etherparse = "0.16"
