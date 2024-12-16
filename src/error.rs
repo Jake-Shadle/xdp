@@ -134,6 +134,22 @@ macro_rules! non_zero_and_power_of_2 {
 }
 
 #[macro_export]
+macro_rules! zero_or_power_of_2 {
+    ($ctx:expr, $name:ident) => {{
+        let val = $ctx.$name;
+        if val != 0 && !val.is_power_of_two() {
+            return Err($crate::error::ConfigError {
+                name: stringify!($name),
+                kind: $crate::error::ConfigErrorKind::NonPowerOf2,
+            }
+            .into());
+        }
+
+        val
+    }};
+}
+
+#[macro_export]
 macro_rules! within_range {
     ($ctx:expr, $name:ident, $range:expr) => {{
         let val = $ctx.$name;

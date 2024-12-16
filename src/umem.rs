@@ -1,9 +1,9 @@
-use crate::error::{ConfigError, Error};
+use crate::{
+    bindings::{self, xdp_desc},
+    error::{ConfigError, Error},
+    Frame,
+};
 use std::collections::VecDeque;
-
-pub const XSK_UMEM_DEFAULT_FRAME_SIZE: u32 = 4096;
-/// The size in bytes of the [headroom](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/include/uapi/linux/bpf.h#L6432) reserved by the kernel for each xdp frame
-pub const XDP_PACKET_HEADROOM: u64 = 256;
 
 /// The frame size (`libc::xdp_umem_reg::chunk_size`) can only be [>=2048 or <=4096](https://github.com/torvalds/linux/blob/c2ee9f594da826bea183ed14f2cc029c719bf4da/Documentation/networking/af_xdp.rst#xdp_umem_reg-setsockopt)
 ///
@@ -45,6 +45,7 @@ pub struct Umem {
     pub(crate) frame_size: usize,
     frame_mask: u64,
     pub(crate) head_room: usize,
+    pub(crate) tx_metadata: bool,
     //pub(crate) frame_count: usize,
 }
 
@@ -64,12 +65,20 @@ impl Umem {
             frame_size: cfg.frame_size as _,
             frame_mask: !(cfg.frame_size as u64 - 1),
             head_room: cfg.head_room as _,
+            tx_metadata: cfg.tx_metadata,
             //frame_count: cfg.frame_count as _,
         })
     }
 
+    /// Given an [`xdp_desc`] filled by the kernel, retrieves the memory block
+    /// it points to as a [`Frame`]
+    ///
+    /// # Safety
+    ///
+    /// The [`Frame`] returned by this function is pointing to memory owned by
+    /// this [`Umem`], it must not outlive this [`Umem`]
     #[inline]
-    pub fn frame(&self, desc: libc::xdp_desc) -> crate::Frame<'_> {
+    pub unsafe fn frame(&self, desc: xdp_desc) -> Frame {
         // SAFETY: Barring kernel bugs, we should only ever get valid addresses
         // within the range of our map
         unsafe {
@@ -80,37 +89,48 @@ impl Umem {
                 as *mut u8;
             let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
 
-            crate::Frame {
+            Frame {
                 data,
                 head: self.head_room,
                 tail: self.head_room + desc.len as usize,
                 base: self.mmap.as_ptr(),
-                has_tx_metadata: false,
+                options: desc.options,
             }
         }
     }
 
+    /// Attempts to allocate a frame from the [`Umem`], returning `None` if there
+    /// are no available frames.
+    ///
+    /// # Safety
+    ///
+    /// The [`Frame`] returned by this function is pointing to memory owned by
+    /// this [`Umem`], it must not outlive this [`Umem`]
     #[inline]
-    pub fn alloc(&mut self) -> crate::Frame<'_> {
-        let addr = self.available.pop_front().unwrap();
+    pub unsafe fn alloc(&mut self) -> Option<Frame> {
+        let addr = self.available.pop_front()?;
 
         unsafe {
-            let addr = self
-                .mmap
-                .as_ptr()
-                .byte_offset((addr + XDP_PACKET_HEADROOM) as _) as *mut u8;
+            let addr =
+                self.mmap.as_ptr().byte_offset(
+                    (addr + bindings::XDP_PACKET_HEADROOM + self.head_room as u64) as _,
+                ) as *mut u8;
             let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
 
-            crate::Frame {
+            Some(Frame {
                 data,
-                head: 0,
-                tail: 0,
+                head: self.head_room,
+                tail: self.head_room,
                 base: self.mmap.as_ptr(),
-                has_tx_metadata: false,
-            }
+                options: 0,
+            })
         }
     }
 
+    /// Given an address offset, adds the frame it points to to the free list
+    ///
+    /// This function assumes that frames are power of 2, and doesn't matter where
+    /// the offset is relative to the frame offset
     #[inline]
     pub(crate) fn free(&mut self, address: u64) {
         self.available.push_front(address & self.frame_mask);
@@ -119,13 +139,12 @@ impl Umem {
     #[inline]
     pub(crate) fn free_get_timestamp(&mut self, address: u64) -> u64 {
         let align_offset = address % self.frame_size as u64;
-        let timestamp = if align_offset >= std::mem::size_of::<crate::frame::XskTxMetadata>() as u64
-        {
+        let timestamp = if align_offset >= std::mem::size_of::<bindings::xsk_tx_metadata>() as u64 {
             unsafe {
                 let tx_meta = &*(self.mmap.as_ptr().byte_offset(
-                    (address - std::mem::size_of::<crate::frame::XskTxMetadata>() as u64) as _,
-                ) as *const crate::frame::XskTxMetadata);
-                tx_meta.which.timestamp
+                    (address - std::mem::size_of::<bindings::xsk_tx_metadata>() as u64) as _,
+                ) as *const bindings::xsk_tx_metadata);
+                tx_meta.offload.completion
             }
         } else {
             0
@@ -174,8 +193,10 @@ pub struct UmemCfgBuilder {
     pub head_room: u32,
     /// The number of total frames. Defaults to 8192.
     pub frame_count: u32,
-    /// If true, the [`Umem`] will be registered with the socket with an additional
-    ///
+    /// If true, the [`Umem`] will be registered with the socket with an
+    /// additional section before the packet that may be filled with TX metadata
+    /// that either request a checksum be calculated by the NIC, and/or that the
+    /// transmission timestamp is set before being added to the completion queue
     pub tx_metadata: bool,
 }
 
@@ -197,7 +218,7 @@ impl UmemCfgBuilder {
         let head_room = crate::within_range!(
             self,
             head_room,
-            0..(frame_size - XDP_PACKET_HEADROOM as u32) as _
+            0..(frame_size - bindings::XDP_PACKET_HEADROOM as u32) as _
         );
         let frame_count = crate::within_range!(self, frame_count, 1..u32::MAX as _);
 
@@ -205,6 +226,7 @@ impl UmemCfgBuilder {
             frame_size,
             frame_count,
             head_room,
+            tx_metadata: self.tx_metadata,
         })
     }
 }
@@ -213,4 +235,5 @@ pub struct UmemCfg {
     frame_size: u32,
     frame_count: u32,
     head_room: u32,
+    tx_metadata: bool,
 }

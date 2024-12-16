@@ -1,9 +1,9 @@
+use super::bindings::*;
 use crate::{Frame, Slab, Umem};
-use libc::xdp_desc;
 
 /// Ring from which we can dequeue frames that have been filled by the kernel
 pub struct RxRing {
-    ring: super::XskConsumer<xdp_desc>,
+    ring: super::XskConsumer<crate::bindings::xdp_desc>,
     _mmap: memmap2::MmapMut,
 }
 
@@ -11,18 +11,15 @@ impl RxRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &libc::xdp_mmap_offsets,
+        offsets: &xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
-        let (_mmap, mut ring) = super::map_ring(
-            socket,
-            cfg.rx_count,
-            libc::XDP_PGOFF_RX_RING as _,
-            &offsets.rx,
-        )
-        .map_err(|inner| crate::socket::SocketError::RingMap {
-            inner,
-            ring: super::Ring::Rx,
-        })?;
+        let (_mmap, mut ring) =
+            super::map_ring(socket, cfg.rx_count, RingPageOffsets::Rx, &offsets.rx).map_err(
+                |inner| crate::socket::SocketError::RingMap {
+                    inner,
+                    ring: super::Ring::Rx,
+                },
+            )?;
 
         ring.cached_consumed = ring.consumer.load(std::sync::atomic::Ordering::Relaxed);
         ring.cached_produced = ring.producer.load(std::sync::atomic::Ordering::Relaxed);
@@ -33,7 +30,20 @@ impl RxRing {
         })
     }
 
-    pub fn recv<'umem>(&mut self, umem: &'umem Umem, frames: &mut Slab<Frame<'umem>>) -> usize {
+    /// Pops frames that have finished receiving
+    ///
+    /// The number of frames returned will be the minimum of the number of frames
+    /// actually available in the ring, and the remaining capacity in the slab
+    ///
+    /// # Returns
+    ///
+    /// The number of actual frames that were pushed to the slab
+    ///
+    /// # Safety
+    ///
+    /// The frames returned in the slab must not outlive the [`Umem`]
+    #[inline]
+    pub unsafe fn recv(&mut self, umem: &Umem, frames: &mut Slab<Frame>) -> usize {
         let nb = frames.available();
         if nb == 0 {
             return 0;
@@ -49,20 +59,10 @@ impl RxRing {
     }
 
     #[inline]
-    fn do_recv<'umem>(
-        &mut self,
-        actual: usize,
-        idx: usize,
-        umem: &'umem Umem,
-        frames: &mut Slab<Frame<'umem>>,
-    ) {
+    unsafe fn do_recv(&mut self, actual: usize, idx: usize, umem: &Umem, frames: &mut Slab<Frame>) {
         let mask = self.ring.mask();
         for i in idx..idx + actual {
             let desc = self.ring[i & mask];
-
-            // this should never happen
-            assert!(desc.options & libc::XDP_PKT_CONTD == 0);
-
             frames.push_back(umem.frame(desc));
         }
 

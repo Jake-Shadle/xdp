@@ -10,6 +10,8 @@ pub use tx::{TxRing, WakableTxRing};
 use crate::error;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::bindings::rings as bindings;
+
 pub const XSK_RING_PROD_DEFAULT_NUM_DESCS: u32 = 2048;
 pub const XSK_RING_CONS_DEFAULT_NUM_DESCS: u32 = 2048;
 
@@ -37,8 +39,8 @@ impl Default for RingConfigBuilder {
         Self {
             fill_count: XSK_RING_PROD_DEFAULT_NUM_DESCS,
             completion_count: XSK_RING_CONS_DEFAULT_NUM_DESCS,
-            rx_count: XSK_RING_PROD_DEFAULT_NUM_DESCS,
-            tx_count: XSK_RING_CONS_DEFAULT_NUM_DESCS,
+            rx_count: XSK_RING_CONS_DEFAULT_NUM_DESCS,
+            tx_count: XSK_RING_PROD_DEFAULT_NUM_DESCS,
         }
     }
 }
@@ -55,10 +57,12 @@ impl RingConfigBuilder {
 
         let fill_count = crate::non_zero_and_power_of_2!(self, fill_count);
         let completion_count = crate::non_zero_and_power_of_2!(self, completion_count);
+        let rx_count = crate::zero_or_power_of_2!(self, rx_count);
+        let tx_count = crate::zero_or_power_of_2!(self, tx_count);
 
         Ok(RingConfig {
-            rx_count: self.rx_count,
-            tx_count: self.tx_count,
+            rx_count,
+            tx_count,
             fill_count,
             completion_count,
         })
@@ -110,14 +114,14 @@ struct XskRing<T: 'static> {
 fn map_ring<T>(
     socket: std::os::fd::RawFd,
     count: u32,
-    offset: u64,
-    offsets: &libc::xdp_ring_offset,
+    offset: bindings::RingPageOffsets,
+    offsets: &bindings::xdp_ring_offset,
 ) -> std::io::Result<(memmap2::MmapMut, XskRing<T>)> {
     // SAFETY: This is called before actually binding the socket, and should be safe barring kernel bugs
     let mut mmap = unsafe {
         memmap2::MmapOptions::new()
             .len(offsets.desc as usize + (count as usize * std::mem::size_of::<T>()))
-            .offset(offset)
+            .offset(offset as u64)
             .populate()
             .map_mut(socket)?
     };

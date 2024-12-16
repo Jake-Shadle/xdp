@@ -1,3 +1,4 @@
+use super::bindings::*;
 use crate::Umem;
 
 /// The ring used to dequeue buffers that the kernel has finished sending
@@ -10,13 +11,13 @@ impl CompletionRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &libc::xdp_mmap_offsets,
+        offsets: &xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
         let (_mmap, mut ring) = super::map_ring(
             socket,
             cfg.completion_count,
-            libc::XDP_UMEM_PGOFF_COMPLETION_RING,
-            &offsets.cr,
+            RingPageOffsets::Completion,
+            &offsets.completion,
         )
         .map_err(|inner| crate::socket::SocketError::RingMap {
             inner,

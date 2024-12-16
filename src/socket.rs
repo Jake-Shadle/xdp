@@ -1,4 +1,4 @@
-use crate::rings;
+use crate::{bindings, rings};
 use std::{fmt, io::Error, os::fd::AsRawFd as _};
 
 #[derive(Debug)]
@@ -73,7 +73,7 @@ impl BindFlags {
     /// to copy mode if the driver for the interface being bound does not support
     /// it, forcing copy mode disregards support for zerocopy mode.
     ///
-    /// Copy mode works
+    /// Copy mode works regardless of NIC/driver
     #[inline]
     pub fn force_copy(&mut self) {
         self.0 |= libc::XDP_COPY;
@@ -83,71 +83,6 @@ impl BindFlags {
     #[inline]
     fn needs_wakeup(&mut self) {
         self.0 |= libc::XDP_USE_NEED_WAKEUP;
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct NicIndex(u32);
-
-impl NicIndex {
-    pub fn new(index: u32) -> Self {
-        Self(index)
-    }
-
-    /// Attempts to look up the NIC by name
-    ///
-    /// # Returns
-    ///
-    /// `None` if the interface cannot be found
-    #[inline]
-    pub fn lookup_by_name(s: &str) -> std::io::Result<Option<Self>> {
-        unsafe {
-            let ifname = std::ffi::CString::new(s)?;
-            let res = libc::if_nametoindex(ifname.as_ptr());
-            if res == 0 {
-                let err = std::io::Error::last_os_error();
-
-                if err.raw_os_error() == Some(libc::ENODEV) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            } else {
-                Ok(Some(Self(res)))
-            }
-        }
-    }
-}
-
-impl From<NicIndex> for u32 {
-    fn from(value: NicIndex) -> Self {
-        value.0
-    }
-}
-
-impl fmt::Debug for NicIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // attempt to retrieve the name via the index
-        let mut name = [0u8; libc::IF_NAMESIZE];
-        let name = if unsafe {
-            !libc::if_indextoname(self.0, &mut name as *mut u8 as *mut i8).is_null()
-        } {
-            let len = name
-                .iter()
-                .position(|n| *n == 0)
-                .unwrap_or(libc::IF_NAMESIZE);
-            std::str::from_utf8(&name[..len]).unwrap_or("unknown")
-        } else {
-            "unknown"
-        };
-
-        write!(f, "{} \"{name}\"", self.0)
-    }
-}
-
-impl PartialEq<u32> for NicIndex {
-    fn eq(&self, other: &u32) -> bool {
-        self.0 == *other
     }
 }
 
@@ -244,16 +179,44 @@ impl XdpSocketBuilder {
         &mut self,
         umem: &crate::Umem,
         cfg: &rings::RingConfig,
-    ) -> Result<libc::xdp_mmap_offsets, SocketError> {
-        let umem_reg = libc::xdp_umem_reg {
+    ) -> Result<bindings::rings::xdp_mmap_offsets, SocketError> {
+        #[repr(C)]
+        struct XdpUmemReg {
+            /// Base pointer of the packet mmap
+            addr: u64,
+            /// Length of the packet mmap in bytes
+            len: u64,
+            /// Size of each individual chunk/frame/packet
+            chunk_size: u32,
+            /// Size of the headroom the packet is offset from the beginning.
+            /// Note this does not include the headroom that is already reserved by the kernel
+            headroom: u32,
+            flags: u32,
+            /// Length of the TX metadata, if any.
+            tx_metadata_len: u32,
+        }
+
+        let mut flags = 0;
+        if !umem.frame_size.is_power_of_two() {
+            flags |= libc::XDP_UMEM_UNALIGNED_CHUNK_FLAG;
+        }
+
+        if umem.tx_metadata {
+            // This value is only available in very recent ~6.11 kernels and was introduced
+            // for those who didn't zero initialize xdp_umem_reg
+            flags |= libc::XDP_UMEM_TX_METADATA_LEN;
+        }
+
+        let umem_reg = XdpUmemReg {
             addr: umem.mmap.as_ptr() as _,
             len: umem.mmap.len() as _,
             chunk_size: umem.frame_size as _,
             headroom: umem.head_room as _,
-            flags: if umem.frame_size.is_power_of_two() {
-                0
+            flags,
+            tx_metadata_len: if umem.tx_metadata {
+                std::mem::size_of::<crate::bindings::xsk_tx_metadata>() as _
             } else {
-                libc::XDP_UMEM_UNALIGNED_CHUNK_FLAG
+                0
             },
         };
 
@@ -273,7 +236,7 @@ impl XdpSocketBuilder {
         }
 
         // SAFETY: xdp_mmap_offsets is POD
-        let mut offsets = unsafe { std::mem::zeroed::<libc::xdp_mmap_offsets>() };
+        let mut offsets = unsafe { std::mem::zeroed::<bindings::rings::xdp_mmap_offsets>() };
 
         let expected_size = std::mem::size_of_val(&offsets) as u32;
         let mut size = expected_size;
@@ -287,7 +250,7 @@ impl XdpSocketBuilder {
                 socket,
                 libc::SOL_XDP,
                 OptName::XdpMmapOffsets as _,
-                &mut offsets as *mut libc::xdp_mmap_offsets as *mut _,
+                &mut offsets as *mut bindings::rings::xdp_mmap_offsets as *mut _,
                 &mut size,
             )
         } != 0
@@ -314,7 +277,7 @@ impl XdpSocketBuilder {
 
     pub fn bind(
         self,
-        interface_index: NicIndex,
+        interface_index: crate::nic::NicIndex,
         queue_id: u32,
         bind_flags: BindFlags,
     ) -> Result<XdpSocket, SocketError> {
@@ -368,6 +331,12 @@ impl XdpSocketBuilder {
         }
 
         Ok(())
+    }
+}
+
+impl std::os::fd::AsRawFd for XdpSocketBuilder {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.sock.as_raw_fd()
     }
 }
 

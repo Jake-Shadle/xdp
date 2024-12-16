@@ -1,3 +1,8 @@
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod csum;
+pub mod net_types;
+
+use crate::bindings;
 use std::fmt;
 
 #[derive(Debug)]
@@ -26,44 +31,37 @@ impl fmt::Display for FrameError {
     }
 }
 
-/// Request transmit timestamp. Upon completion, put it into tx_timestamp
-/// field of union xsk_tx_metadata.
-const XDP_TXMD_FLAGS_TIMESTAMP: u64 = 1 << 0;
+/// Marker trait used to indicate the type is a POD and can be safely converted
+/// to and from raw bytes
+pub unsafe trait Pod: Sized {
+    #[inline]
+    fn size() -> usize {
+        std::mem::size_of::<Self>()
+    }
 
-/// Request transmit checksum offload. Checksum start position and offset
-/// are communicated via csum_start and csum_offset fields of union
-/// xsk_tx_metadata.
-const XDP_TXMD_FLAGS_CHECKSUM: u64 = 1 << 1;
+    #[inline]
+    fn zeroed() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
 
-/// xdp_desc contains tx_metadata
-const XDP_TX_METADATA: u32 = 1 << 1;
+    #[inline]
+    fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self as *const Self as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
 
 const fn tx_metadata_diff() -> i32 {
-    -(std::mem::size_of::<XskTxMetadata>() as i32)
+    -(std::mem::size_of::<bindings::xsk_tx_metadata>() as i32)
 }
 
 pub enum CsumOffload {
-    Request(Csum),
+    Request(bindings::xsk_tx_request),
     None,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct Csum {
-    pub start: u16,
-    pub offset: u16,
-}
-
-#[repr(C)]
-pub(crate) union TxMetadataInner {
-    pub(crate) csum: Csum,
-    pub(crate) timestamp: u64,
-}
-
-#[repr(C)]
-pub(crate) struct XskTxMetadata {
-    flags: u64,
-    pub(crate) which: TxMetadataInner,
 }
 
 /// A frame of data which can be received by the kernel or sent by userspace
@@ -90,27 +88,63 @@ pub(crate) struct XskTxMetadata {
 /// │               │                    │        │          │    
 ///  head            +14                  +34      +42        tail
 /// ```
-pub struct Frame<'umem> {
+pub struct Frame {
     /// The entire frame buffer, including headroom, initialized packet contents,
     /// and uninitialized/empty remainder
-    pub(crate) data: &'umem mut [u8],
+    pub(crate) data: &'static mut [u8],
     /// The offset in data where the packet starts
     pub(crate) head: usize,
     /// The offset in data where the packet ends
     pub(crate) tail: usize,
     pub(crate) base: *const u8,
-    pub has_tx_metadata: bool,
+    pub(crate) options: u32,
 }
 
-impl<'umem> Frame<'umem> {
+impl Frame {
+    /// Only used for testing
+    pub fn testing_new(buf: &mut [u8]) -> Self {
+        assert_eq!(buf.len(), 2 * 1024);
+        unsafe {
+            Self {
+                data: std::mem::transmute(buf),
+                head: bindings::XDP_PACKET_HEADROOM as _,
+                tail: bindings::XDP_PACKET_HEADROOM as _,
+                base: std::ptr::null(),
+                options: 0,
+            }
+        }
+    }
+
+    /// The number of initialized/valid bytes in the frame
     #[inline]
     pub fn len(&self) -> usize {
         self.tail - self.head
     }
 
+    /// The total capacity of the frame.
+    ///
+    /// Note that this never includes the [`crate::bindings::XDP_PACKET_HEADROOM`]
+    /// part of every frame
     #[inline]
     pub fn capacity(&self) -> usize {
         self.data.len()
+    }
+
+    /// If true, this frame is partial, and the next frame in the RX continues
+    /// this frame, until this returns fals
+    #[inline]
+    pub fn is_continued(&self) -> bool {
+        (self.options & bindings::XdpFlags::XDP_PKT_CONTD as u32) != 0
+    }
+
+    /// Checks if the NIC this frame is being sent on supports tx checksum offload
+    ///
+    /// TODO: Create a different type to indicate checksum since it's not going
+    /// to change so the user can choose at init time whether they want checksum
+    /// offload or not
+    #[inline]
+    pub fn can_offload_checksum(&self) -> bool {
+        (self.options & bindings::InternalXdpFlags::SupportsChecksumOffload as u32) != 0
     }
 
     /// Adjust the head of the packet up or down by `diff` bytes
@@ -119,7 +153,7 @@ impl<'umem> Frame<'umem> {
     /// allowing modification of layers (eg. layer 3 IPv4 <-> IPv6) without needing
     /// to copy the entirety of the packet data up or down.
     ///
-    /// Adjusting the head down requires that headroom was configured for the umem
+    /// Adjusting the head down requires that headroom was configured for the [`Umem`]
     #[inline]
     pub fn adjust_head(&mut self, diff: i32) -> Result<(), FrameError> {
         if diff < 0 {
@@ -172,8 +206,14 @@ impl<'umem> Frame<'umem> {
         Ok(())
     }
 
+    /// Retrieves a `T` beginning at the specified offset
+    ///
+    /// # Errors
+    ///
+    /// - The offset is not within bounds
+    /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn item_at_offset<T: Sized>(&self, offset: usize) -> Result<&T, FrameError> {
+    pub fn item_at_offset<T: Pod>(&self, offset: usize) -> Result<&T, FrameError> {
         let start = self.head + offset;
         if start > self.tail {
             return Err(FrameError::InvalidOffset {
@@ -194,8 +234,14 @@ impl<'umem> Frame<'umem> {
         Ok(unsafe { &*(self.data.as_ptr().byte_offset((self.head + offset) as _) as *const T) })
     }
 
+    /// Retrieves a mutable `T` beginning at the specified offset
+    ///
+    /// # Errors
+    ///
+    /// - The offset is not within bounds
+    /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn item_at_offset_mut<T: Sized>(&mut self, offset: usize) -> Result<&mut T, FrameError> {
+    pub fn item_at_offset_mut<T: Pod>(&mut self, offset: usize) -> Result<&mut T, FrameError> {
         let start = self.head + offset;
         if start > self.tail {
             return Err(FrameError::InvalidOffset {
@@ -221,9 +267,22 @@ impl<'umem> Frame<'umem> {
         })
     }
 
+    /// Retrieves a slice of bytes beginning at the specified offset
+    ///
+    /// # Errors
+    ///
+    /// - The offset is not within bounds
+    /// - The offset + len is not within bounds
     #[inline]
     pub fn slice_at_offset(&self, offset: usize, len: usize) -> Result<&[u8], FrameError> {
         let start = self.head + offset;
+        if start > self.tail {
+            return Err(FrameError::InvalidOffset {
+                offset,
+                length: self.tail - self.head,
+            });
+        }
+
         if start + len > self.tail {
             return Err(FrameError::InsufficientData {
                 offset,
@@ -235,6 +294,12 @@ impl<'umem> Frame<'umem> {
         Ok(&self.data[start..start + len])
     }
 
+    /// Retrieves a mutable slice of bytes beginning at the specified offset
+    ///
+    /// # Errors
+    ///
+    /// - The offset is not within bounds
+    /// - The offset + len is not within bounds
     #[inline]
     pub fn slice_at_offset_mut(
         &mut self,
@@ -253,6 +318,33 @@ impl<'umem> Frame<'umem> {
         Ok(&mut self.data[start..start + len])
     }
 
+    /// Retrieves a fixed size array of bytes beginning at the specified offset
+    ///
+    /// # Errors
+    ///
+    /// - The offset is not within bounds
+    /// - The offset + `N` is not within bounds
+    #[inline]
+    pub fn array_at_offset<const N: usize>(&self, offset: usize) -> Result<[u8; N], FrameError> {
+        let start = self.head + offset;
+        if start + N > self.tail {
+            return Err(FrameError::InsufficientData {
+                offset,
+                size: N,
+                length: self.tail - offset,
+            });
+        }
+
+        let mut data = [0u8; N];
+        data.copy_from_slice(&self.data[start..start + N]);
+        Ok(data)
+    }
+
+    /// Pushes a slice of bytes to the frame, extending the tail
+    ///
+    /// # Errors
+    ///
+    /// The slice would extend the tail beyond the frame's capacity
     #[inline]
     pub fn push_slice(&mut self, slice: &[u8]) -> Result<(), FrameError> {
         if self.tail + slice.len() > self.data.len() {
@@ -269,8 +361,10 @@ impl<'umem> Frame<'umem> {
     /// Calling this function requires that the [`UmemCfgBuilder::tx_metadata`]
     /// was true.
     ///
-    /// - If `csum` is Some(), this will request that the Layer 4 checksum computation
-    /// be offload to the NIC before transmission
+    /// - If `csum` is `CsumOffload::Request`, this will request that the Layer 4
+    /// checksum computation be offload to the NIC before transmission. Note that
+    /// this requires that the IP pseudo header checksum be calculated and stored
+    /// in the same location.
     /// - If `request_timestamp` is true, requests that the NIC write the timestamp
     /// the frame was transmitted. This can be retrieved using [`crate::CompletionRing::dequeue_with_timestamps`]
     #[inline]
@@ -283,27 +377,34 @@ impl<'umem> Frame<'umem> {
         debug_assert!(request_timestamp || matches!(csum, CsumOffload::Request { .. }));
 
         self.adjust_head(tx_metadata_diff())?;
-        let tx_meta = self.item_at_offset_mut::<XskTxMetadata>(0)?;
-        tx_meta.flags = 0;
-        tx_meta.which.timestamp = 0;
+        {
+            let tx_meta = self.item_at_offset_mut::<bindings::xsk_tx_metadata>(0)?;
+            tx_meta.flags = 0;
+            tx_meta.offload.completion = 0;
 
-        if let CsumOffload::Request(csum_req) = csum {
-            tx_meta.flags |= XDP_TXMD_FLAGS_CHECKSUM;
-            tx_meta.which.csum = csum_req;
-        }
+            if let CsumOffload::Request(csum_req) = csum {
+                tx_meta.flags |= bindings::XDP_TXMD_FLAGS_CHECKSUM;
+                tx_meta.offload.request = csum_req;
+            }
 
-        if request_timestamp {
-            tx_meta.flags |= XDP_TXMD_FLAGS_TIMESTAMP;
+            if request_timestamp {
+                tx_meta.flags |= bindings::XDP_TXMD_FLAGS_TIMESTAMP;
+            }
         }
+        self.adjust_head(-tx_metadata_diff())?;
+
+        self.options |= bindings::XdpFlags::XDP_TX_METADATA as u32;
 
         Ok(())
     }
 }
 
-impl<'umem> From<Frame<'umem>> for libc::xdp_desc {
-    fn from(frame: Frame<'umem>) -> Self {
-        if !frame.has_tx_metadata {
-            libc::xdp_desc {
+use crate::bindings::xdp_desc;
+
+impl From<Frame> for xdp_desc {
+    fn from(frame: Frame) -> Self {
+        if (frame.options & bindings::XdpFlags::XDP_TX_METADATA as u32) == 0 {
+            xdp_desc {
                 // SAFETY:
                 addr: unsafe {
                     frame
@@ -313,19 +414,22 @@ impl<'umem> From<Frame<'umem>> for libc::xdp_desc {
                         .offset_from(frame.base) as _
                 },
                 len: (frame.tail - frame.head) as _,
-                options: 0,
+                options: frame.options & !(bindings::InternalXdpFlags::Mask as u32),
             }
         } else {
-            libc::xdp_desc {
+            xdp_desc {
                 addr: unsafe {
                     frame
                         .data
                         .as_ptr()
-                        .byte_offset((frame.head + std::mem::size_of::<XskTxMetadata>()) as _)
+                        .byte_offset(
+                            (frame.head + std::mem::size_of::<bindings::xsk_tx_metadata>()) as _,
+                        )
                         .offset_from(frame.base) as _
                 },
-                len: (frame.tail - frame.head - std::mem::size_of::<XskTxMetadata>()) as _,
-                options: XDP_TX_METADATA,
+                len: (frame.tail - frame.head - std::mem::size_of::<bindings::xsk_tx_metadata>())
+                    as _,
+                options: frame.options & !(bindings::InternalXdpFlags::Mask as u32),
             }
         }
     }

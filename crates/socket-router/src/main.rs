@@ -26,7 +26,6 @@ static XSK: XskMap = XskMap::with_max_entries(128, 0);
 // static SOCKET_COUNT: u64 = 0;
 
 const TEST_PORT: u16 = u16::to_be(7777);
-const IGNORE: &[u16] = &[u16::to_be(5353), u16::to_be(1900)];
 
 /// eBPF doesn't support 32-bit atomic operations, but AtomicU64 doesn't provide
 /// fetch_add when targeting eBPF for some reason, so we just roll our own

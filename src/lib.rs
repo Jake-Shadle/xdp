@@ -1,7 +1,9 @@
 pub mod affinity;
 pub mod error;
-mod frame;
+pub mod frame;
 pub use frame::Frame;
+pub mod bindings;
+pub mod nic;
 mod rings;
 pub mod socket;
 pub mod umem;
@@ -9,7 +11,8 @@ pub mod umem;
 pub use umem::Umem;
 
 pub use rings::{
-    CompletionRing, FillRing, RingConfig, RingConfigBuilder, RxRing, TxRing, WakableFillRing,
+    CompletionRing, FillRing, RingConfig, RingConfigBuilder, Rings, RxRing, TxRing,
+    WakableFillRing, WakableRings,
 };
 
 pub struct Slab<T> {

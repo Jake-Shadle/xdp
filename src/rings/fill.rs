@@ -1,3 +1,4 @@
+use super::bindings::*;
 use crate::Umem;
 
 /// The ring used to enqueue buffers for the kernel to fill in with frames received
@@ -11,18 +12,15 @@ impl FillRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &libc::xdp_mmap_offsets,
+        offsets: &xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
-        let (_mmap, mut ring) = super::map_ring(
-            socket,
-            cfg.fill_count,
-            libc::XDP_UMEM_PGOFF_FILL_RING,
-            &offsets.fr,
-        )
-        .map_err(|inner| crate::socket::SocketError::RingMap {
-            inner,
-            ring: super::Ring::Fill,
-        })?;
+        let (_mmap, mut ring) =
+            super::map_ring(socket, cfg.fill_count, RingPageOffsets::Fill, &offsets.fill).map_err(
+                |inner| crate::socket::SocketError::RingMap {
+                    inner,
+                    ring: super::Ring::Fill,
+                },
+            )?;
 
         ring.cached_consumed = cfg.fill_count;
         ring.cached_produced = 0;
@@ -35,12 +33,16 @@ impl FillRing {
 
     /// Enqueues up to `num_frames` to be received and filled by the kernel
     ///
+    /// # Safety
+    ///
+    /// The [`Umem`] must outlive the `AF_XDP` socket
+    ///
     /// # Returns
     ///
     /// The number of frames that were actually enqueued. This number can be
     /// lower than the requested `num_frames` if the Umem didn't have enough
     /// open slots, or the rx ring had insufficient capacity
-    pub fn enqueue(&mut self, umem: &mut Umem, num_frames: usize) -> usize {
+    pub unsafe fn enqueue(&mut self, umem: &mut Umem, num_frames: usize) -> usize {
         let mut popper = umem.popper();
         let requested = std::cmp::min(popper.len(), num_frames);
         if requested == 0 {
@@ -73,7 +75,7 @@ impl WakableFillRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &libc::xdp_mmap_offsets,
+        offsets: &xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
         let inner = FillRing::new(socket, cfg, offsets)?;
 
@@ -83,8 +85,12 @@ impl WakableFillRing {
     /// The same as [`FillRing::enqueue`], except the additional `wakeup` parameter
     /// determines if the kernel is actually informed of the new buffer(s) available
     /// to fill with data
+    ///
+    /// # Safety
+    ///
+    /// The [`Umem`] must outlive the `AF_XDP` socket
     #[inline]
-    pub fn enqueue(
+    pub unsafe fn enqueue(
         &mut self,
         umem: &mut Umem,
         num_frames: usize,

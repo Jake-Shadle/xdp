@@ -1,6 +1,6 @@
 use std::os::fd::AsRawFd;
 
-use xdp::socket::NicIndex;
+use xdp::nic::NicIndex;
 
 pub struct VirtDev {
     pub index: u32,
@@ -143,7 +143,7 @@ impl Namespace {
             ns,
         }
     }
-    pub fn enter(&mut self) -> NamespaceCtx<'_> {
+    pub fn enter(&self) -> NamespaceCtx<'_> {
         let path = format!("/var/run/netns/{}", self.ns);
         {
             let nsf = std::fs::File::open(&path).expect("failed to open");
@@ -290,6 +290,8 @@ pub struct TestBed {
     namespace: &'static str,
     oip4: std::net::Ipv4Addr,
     iip4: std::net::Ipv4Addr,
+    oip6: std::net::Ipv6Addr,
+    iip6: std::net::Ipv6Addr,
     omac: String,
     imac: String,
 }
@@ -297,8 +299,9 @@ pub struct TestBed {
 pub struct DevInfo {
     pub name: String,
     pub ns: Option<Namespace>,
-    pub index: xdp::socket::NicIndex,
+    pub index: xdp::nic::NicIndex,
     pub ipv4: std::net::Ipv4Addr,
+    pub ipv6: std::net::Ipv6Addr,
     pub mac: [u8; 6],
 }
 
@@ -331,6 +334,19 @@ impl TestBed {
             "dev",
             &iname,
             &format!("{iip4}/24"),
+        ]);
+
+        let oip6 = std::net::Ipv6Addr::new(0xfe80, 0xdead, 0xcafe, index as _, 0, 0, 0, 1);
+        let iip6 = std::net::Ipv6Addr::new(0xfe80, 0xdead, 0xcafe, index as _, 0, 0, 0, 2);
+        ip_exec(&["addr", "add", "dev", &oname, &format!("{oip6}/64")]);
+        ip_exec(&[
+            "-n",
+            ns,
+            "addr",
+            "add",
+            "dev",
+            &iname,
+            &format!("{iip6}/64"),
         ]);
 
         exec("ethtool", &["-K", &oname, "rxvlan", "off", "txvlan", "off"]);
@@ -384,6 +400,30 @@ impl TestBed {
             "nud",
             "permanent",
         ]);
+        ip_exec(&[
+            "neigh",
+            "add",
+            &iip6.to_string(),
+            "lladdr",
+            &imac,
+            "dev",
+            &oname,
+            "nud",
+            "permanent",
+        ]);
+        ip_exec(&[
+            "-n",
+            ns,
+            "neigh",
+            "add",
+            &oip6.to_string(),
+            "lladdr",
+            &omac,
+            "dev",
+            &iname,
+            "nud",
+            "permanent",
+        ]);
 
         ip_exec(&["link", "set", "dev", &oname, "up"]);
         ip_exec(&["-n", ns, "link", "set", "dev", &iname, "up"]);
@@ -393,9 +433,9 @@ impl TestBed {
             ns,
             "route",
             "add",
-            "10.11/16",
+            "fe80:dead:cafe::/48",
             "via",
-            &oip4.to_string(),
+            &oip6.to_string(),
             "dev",
             &iname,
         ]);
@@ -404,6 +444,8 @@ impl TestBed {
             namespace: ns,
             oip4,
             iip4,
+            oip6,
+            iip6,
             omac,
             imac,
         }
@@ -481,6 +523,7 @@ impl TestBed {
             ns: Some(ns),
             index,
             ipv4: self.iip4,
+            ipv6: self.iip6,
             mac,
         }
     }
@@ -503,6 +546,7 @@ impl TestBed {
             ns: None,
             index,
             ipv4: self.oip4,
+            ipv6: self.oip6,
             mac,
         }
     }

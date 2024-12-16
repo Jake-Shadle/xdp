@@ -1,9 +1,9 @@
+use super::bindings::*;
 use crate::{Frame, Slab};
-use libc::xdp_desc;
 
 /// The ring used to enqueue frames for the kernel to send
 pub struct TxRing {
-    ring: super::XskProducer<xdp_desc>,
+    ring: super::XskProducer<crate::bindings::xdp_desc>,
     _mmap: memmap2::MmapMut,
 }
 
@@ -11,18 +11,15 @@ impl TxRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &libc::xdp_mmap_offsets,
+        offsets: &xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
-        let (_mmap, mut ring) = super::map_ring(
-            socket,
-            cfg.tx_count,
-            libc::XDP_PGOFF_TX_RING as _,
-            &offsets.tx,
-        )
-        .map_err(|inner| crate::socket::SocketError::RingMap {
-            inner,
-            ring: super::Ring::Tx,
-        })?;
+        let (_mmap, mut ring) =
+            super::map_ring(socket, cfg.tx_count, RingPageOffsets::Tx, &offsets.tx).map_err(
+                |inner| crate::socket::SocketError::RingMap {
+                    inner,
+                    ring: super::Ring::Tx,
+                },
+            )?;
 
         ring.cached_produced = ring.producer.load(std::sync::atomic::Ordering::Relaxed);
         // cached_consumed is tx_count bigger than the real consumer pointer so
@@ -41,12 +38,17 @@ impl TxRing {
 
     /// Enqueues frames to be sent by the kernel
     ///
+    /// # Safety
+    ///
+    /// The [`Umem`] that owns the frames being sent must outlive the `AF_XDP`
+    /// socket
+    ///
     /// # Returns
     ///
     /// The number of frames that were actually enqueued. This number can be
     /// lower than the requested `num_frames` if the Umem didn't have enough
-    /// open slots, or the rx ring had insufficient capacity
-    pub fn send(&mut self, frames: &mut Slab<Frame<'_>>) -> usize {
+    /// open slots, or the tx ring had insufficient capacity
+    pub unsafe fn send(&mut self, frames: &mut Slab<Frame>) -> usize {
         let requested = frames.len();
         if requested == 0 {
             return 0;
@@ -81,7 +83,7 @@ impl WakableTxRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &libc::xdp_mmap_offsets,
+        offsets: &xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
         let inner = TxRing::new(socket, cfg, offsets)?;
         Ok(Self { inner, socket })
@@ -89,12 +91,21 @@ impl WakableTxRing {
 
     /// Enqueues frames to be sent by the kernel
     ///
+    /// # Safety
+    ///
+    /// The [`Umem`] that owns the frames being sent must outlive the `AF_XDP`
+    /// socket
+    ///
     /// # Returns
     ///
     /// The number of frames that were actually enqueued. This number can be
     /// lower than the requested `num_frames` if the Umem didn't have enough
     /// open slots, or the rx ring had insufficient capacity
-    pub fn send(&mut self, frames: &mut Slab<Frame<'_>>, wakeup: bool) -> std::io::Result<usize> {
+    pub unsafe fn send(
+        &mut self,
+        frames: &mut Slab<Frame>,
+        wakeup: bool,
+    ) -> std::io::Result<usize> {
         let queued = self.inner.send(frames);
 
         if queued > 0 && wakeup {
