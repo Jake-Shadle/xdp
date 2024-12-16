@@ -89,10 +89,6 @@ pub fn real_socket_router(ctx: XdpContext) -> Result<Action, ()> {
         }
     };
 
-    if IGNORE.contains(&dest_port) {
-        return Ok(xdp_action::XDP_DROP);
-    }
-
     if dest_port != TEST_PORT {
         return Err(());
     }

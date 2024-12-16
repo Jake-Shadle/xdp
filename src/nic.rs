@@ -444,17 +444,17 @@ impl NicIndex {
                     if if_index != self.0 {
                         continue;
                     }
-                    if let Some(xdp_attr) = get_attr::<u64>(&attrs, Netdev::XdpFeatures) {
+                    if let Some(xdp_attr) = dbg!(get_attr::<u64>(&attrs, Netdev::XdpFeatures)) {
                         xdp_features = xdp_attr;
                     } else {
                         continue;
                     }
 
                     zero_copy_max_segs =
-                        get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
+                        dbg!(get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0));
                     rx_metadata_features =
-                        get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
-                    xsk_features = get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0);
+                        dbg!(get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0));
+                    xsk_features = dbg!(get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0));
                 }
 
                 Ok(())
@@ -503,7 +503,8 @@ impl PartialEq<u32> for NicIndex {
 mod test {
     #[test]
     fn gets_features() {
-        let nic = super::NicIndex::lookup_by_name("enp5s0").unwrap().unwrap();
-        nic.query_capabilities().unwrap();
+        let nic = super::NicIndex::lookup_by_name("enp117s0f1").unwrap().unwrap();
+        "172.23.40.106"
+        panic!("{:?}", nic.query_capabilities().unwrap());
     }
 }
