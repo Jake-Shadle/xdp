@@ -1,5 +1,31 @@
 //! Utilities for querying NIC capabilities
 
+#[cfg(test)]
+macro_rules! flag_strings {
+    ($table:expr, $v:expr, $f:expr) => {{
+        let mut count = 0;
+
+        for (flag, s) in $table {
+            if (flag as u64 & $v) == 0 {
+                continue;
+            }
+
+            if count > 0 {
+                $f.write_str(" | ")?;
+            }
+
+            count += 1;
+            $f.write_str(s)?;
+        }
+
+        if count == 0 {
+            $f.write_str("-")?;
+        }
+
+        Ok(())
+    }}
+}
+
 #[derive(Copy, Clone)]
 pub struct NicIndex(pub(crate) u32);
 
@@ -25,15 +51,110 @@ pub enum XdpModes {
     Hardware = 1 << 3,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
+#[cfg_attr(test, derive(Debug))]
 pub enum XdpZeroCopy {
     Unavailable,
     Available,
     MultiBuffer(u32),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
+pub struct XdpFeatures(u64);
+
+/// XDP features that can be supported by a driver/NIC
+#[derive(Copy, Clone)]
+pub enum XdpAct {
+    /// XDP features supported by all drivers
+    /// 
+    /// - `XDP_ABORTED` - Drop packet with tracepoint exception
+    /// - `XDP_DROP` - Silently drop packet
+    /// - `XDP_PASS` - Let packet continue through the normal network stack
+    /// - `XDP_TX` - Bounce packet back to the NIC it arrived on
+    Basic = 1 << 0,
+    /// `XDP_REDIRECT` is supported
+    /// 
+    /// Packets can be redirected to another NIC or to an `AF_XDP` socket.
+    Redirect = 1 << 1,
+    /// The driver implements the [`ndo_xdp_xmit`](https://github.com/xdp-project/xdp-project/blob/master/areas/core/redesign01_ndo_xdp_xmit.org)
+    /// callback
+    NdoXmit = 1 << 2,
+    /// `XDP_ZEROCOPY` is supported.
+    XskZeroCopy = 1 << 3,
+    /// Hardware offloading is supported
+    HwOffload = 1 << 4,
+    /// The NIC supports non-linear buffers in the driver napi callback
+    RxSg = 1 << 5,
+    /// The NIC supports non-linear buffers in the [`ndo_xdp_xmit`](https://github.com/xdp-project/xdp-project/blob/master/areas/core/redesign01_ndo_xdp_xmit.org)
+    /// callback
+    NdoXmitSg = 1 << 6,
+
+    Mask = (1 << 7) - 1,
+}
+
+#[cfg(test)]
+impl fmt::Debug for XdpFeatures {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        flag_strings!(
+            [
+                (XdpAct::Basic, "NETDEV_XDP_ACT_BASIC"),
+                (XdpAct::Redirect, "NETDEV_XDP_ACT_REDIRECT"),
+                (XdpAct::NdoXmit, "NETDEV_XDP_ACT_NDO_XMIT"),
+                (XdpAct::XskZeroCopy, "NETDEV_XDP_ACT_XSK_ZEROCOPY"),
+                (XdpAct::HwOffload, "NETDEV_XDP_ACT_HW_OFFLOAD"),
+                (XdpAct::RxSg, "NETDEV_XDP_ACT_RX_SG"),
+                (XdpAct::NdoXmitSg, "NETDEV_XDP_ACT_NDO_XMIT_SG"),
+            ],
+            self.0,
+            f
+        )
+    }
+}
+
+impl XdpFeatures {
+    /// XDP features supported by all drivers
+    /// 
+    /// - `XDP_ABORTED` - Drop packet with tracepoint exception
+    /// - `XDP_DROP` - Silently drop packet
+    /// - `XDP_PASS` - Let packet continue through the normal network stack
+    /// - `XDP_TX` - Bounce packet back to the NIC it arrived on
+    #[inline]
+    pub fn basic(self) -> bool {
+        (self.0 & XdpAct::Basic as u64) != 0
+    }
+
+    /// `XDP_REDIRECT` is supported
+    /// 
+    /// Packets can be redirected to another NIC or to an `AF_XDP` socket.
+    #[inline]
+    pub fn redirect(self) -> bool {
+        (self.0 & XdpAct::Redirect as u64) != 0
+    }
+
+    /// `XDP_ZEROCOPY` is supported.
+    #[inline]
+    pub fn zero_copy(self) -> bool {
+        (self.0 & XdpAct::XskZeroCopy as u64) != 0
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct XdpRxMetadata(u64);
+
+#[cfg(test)]
+impl fmt::Debug for XdpRxMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        flag_strings!(
+            [
+                (RxMetadataFlags::Timestamp, "NETDEV_XDP_RX_METADATA_TIMESTAMP"),
+                (RxMetadataFlags::Hash, "NETDEV_XDP_RX_METADATA_HASH"),
+                (RxMetadataFlags::VlanTag, "NETDEV_XDP_RX_METADATA_VLAN_TAG"),
+            ],
+            self.0,
+            f
+        )
+    }
+}
 
 #[repr(u64)]
 pub enum RxMetadataFlags {
@@ -65,8 +186,22 @@ impl XdpRxMetadata {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct XdpTxMetadata(u64);
+
+#[cfg(test)]
+impl fmt::Debug for XdpTxMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        flag_strings!(
+            [
+                (TxMetadataFlags::Timestamp, "NETDEV_XSK_FLAGS_TX_TIMESTAMP"),
+                (TxMetadataFlags::Checksum, "NETDEV_XSK_FLAGS_TX_CHECKSUM"),
+            ],
+            self.0,
+            f
+        )
+    }
+}
 
 #[repr(u64)]
 pub enum TxMetadataFlags {
@@ -90,13 +225,14 @@ impl XdpTxMetadata {
     }
 }
 
-#[derive(Debug)]
+#[cfg_attr(test, derive(Debug))]
 pub struct NetdevCapabilities {
     // The [XDP modes](https://docs.ebpf.io/linux/program-type/BPF_PROG_TYPE_XDP/)
     // supported by the driver/device
     //pub modes: XdpModes,
     /// The number of hardware queues supported by the NIC
     pub queue_count: u32,
+    pub xdp_features: XdpFeatures,
     pub zero_copy: XdpZeroCopy,
     pub rx_metadata: XdpRxMetadata,
     pub tx_metadata: XdpTxMetadata,
@@ -283,12 +419,14 @@ impl NicIndex {
                         channels.tx_count += 1;
                     }
                 }
+
+
             }
         }
 
         Ok((
-            channels.max_rx.max(channels.max_tx),
-            channels.rx_count.max(channels.tx_count),
+            channels.max_rx.max(channels.max_tx).max(channels.max_combined),
+            channels.rx_count.max(channels.tx_count).max(channels.combined_count),
         ))
     }
 
@@ -444,17 +582,15 @@ impl NicIndex {
                     if if_index != self.0 {
                         continue;
                     }
-                    if let Some(xdp_attr) = dbg!(get_attr::<u64>(&attrs, Netdev::XdpFeatures)) {
+                    if let Some(xdp_attr) = get_attr::<u64>(&attrs, Netdev::XdpFeatures) {
                         xdp_features = xdp_attr;
                     } else {
                         continue;
                     }
 
-                    zero_copy_max_segs =
-                        dbg!(get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0));
-                    rx_metadata_features =
-                        dbg!(get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0));
-                    xsk_features = dbg!(get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0));
+                    zero_copy_max_segs = get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
+                    rx_metadata_features = get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
+                    xsk_features = get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0);
                 }
 
                 Ok(())
@@ -468,6 +604,7 @@ impl NicIndex {
                 1 => XdpZeroCopy::Available,
                 o => XdpZeroCopy::MultiBuffer(o),
             },
+            xdp_features: XdpFeatures(xdp_features),
             rx_metadata: XdpRxMetadata(rx_metadata_features),
             tx_metadata: XdpTxMetadata(xsk_features),
         })
@@ -504,7 +641,6 @@ mod test {
     #[test]
     fn gets_features() {
         let nic = super::NicIndex::lookup_by_name("enp117s0f1").unwrap().unwrap();
-        "172.23.40.106"
-        panic!("{:?}", nic.query_capabilities().unwrap());
+        dbg!(nic.query_capabilities().unwrap());
     }
 }
