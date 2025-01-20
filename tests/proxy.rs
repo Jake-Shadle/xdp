@@ -339,25 +339,27 @@ impl Proxy {
                 std::cmp::min(BATCH_SIZE, BATCH_SIZE - rx_slab.len()),
             );
 
-            while let Some(mut frame) = rx_slab.pop_front() {
-                let udp_packet = test_utils::UdpPacket::parse_frame(&frame);
+            while let Some(mut packet) = rx_slab.pop_front() {
+                let udp_packet = test_utils::UdpPacket::parse_packet(&packet);
 
                 let (counter, target_mac, target_addr) = TestPacket::parse(
-                    frame
+                    packet
                         .slice_at_offset(udp_packet.data_offset, udp_packet.data_length)
                         .unwrap(),
                 );
 
-                frame.adjust_tail(-(udp_packet.data_length as i32)).unwrap();
+                packet
+                    .adjust_tail(-(udp_packet.data_length as i32))
+                    .unwrap();
 
                 use test_utils::nt::*;
 
                 match (udp_packet.source.socket.ip(), target_addr.ip()) {
                     (IpAddr::V4(_), IpAddr::V6(_)) => {
-                        frame.adjust_head(-(V4_V6_DIFF as i32)).unwrap();
+                        packet.adjust_head(-(V4_V6_DIFF as i32)).unwrap();
                     }
                     (IpAddr::V6(_), IpAddr::V4(_)) => {
-                        frame.adjust_head(V4_V6_DIFF as i32).unwrap();
+                        packet.adjust_head(V4_V6_DIFF as i32).unwrap();
                     }
                     _ => {}
                 }
@@ -365,7 +367,7 @@ impl Proxy {
                 // Mutate the packet, swapping the source and destination in each layer
                 let mut offset = 0;
                 {
-                    let eth: &mut EthHdr = frame.item_at_offset_mut(offset).unwrap();
+                    let eth: &mut EthHdr = packet.item_at_offset_mut(offset).unwrap();
                     offset += EthHdr::LEN;
                     eth.dst_addr = target_mac;
                     eth.src_addr = udp_packet.destination.mac;
@@ -375,7 +377,7 @@ impl Proxy {
 
                 match target_addr.ip() {
                     IpAddr::V4(v4) => {
-                        let ip: &mut Ipv4Hdr = frame.item_at_offset_mut(offset).unwrap();
+                        let ip: &mut Ipv4Hdr = packet.item_at_offset_mut(offset).unwrap();
                         offset += Ipv4Hdr::LEN;
                         ip.src_addr = src_ip4;
                         ip.dst_addr = v4.to_bits().to_be();
@@ -392,7 +394,7 @@ impl Proxy {
                         }
                         .calc_header_checksum();
 
-                        // ip.check = xdp::frame::fold_checksum(xdp::frame::bpf_csum_diff(
+                        // ip.check = xdp::packet::fold_checksum(xdp::packet::bpf_csum_diff(
                         //     &[],
                         //     unsafe {
                         //         std::slice::from_raw_parts(
@@ -404,7 +406,7 @@ impl Proxy {
                         // ) as _);
                     }
                     IpAddr::V6(v6) => {
-                        let ip: &mut Ipv6Hdr = frame.item_at_offset_mut(offset).unwrap();
+                        let ip: &mut Ipv6Hdr = packet.item_at_offset_mut(offset).unwrap();
                         offset += Ipv6Hdr::LEN;
                         ip.src_addr.in6_u.u6_addr8 = src_ip6;
                         ip.dst_addr.in6_u.u6_addr8 = v6.octets();
@@ -414,7 +416,7 @@ impl Proxy {
                 }
 
                 {
-                    let udp: &mut UdpHdr = frame.item_at_offset_mut(offset).unwrap();
+                    let udp: &mut UdpHdr = packet.item_at_offset_mut(offset).unwrap();
                     offset += UdpHdr::LEN;
                     udp.dest = target_addr.port().to_be();
                     udp.source = PROXY_PORT_NO;
@@ -441,16 +443,16 @@ impl Proxy {
                     };
                 };
 
-                frame.push_slice(client.as_ref()).unwrap();
+                packet.push_slice(client.as_ref()).unwrap();
 
                 {
-                    let nudp_packet = test_utils::UdpPacket::parse_frame(&frame);
+                    let nudp_packet = test_utils::UdpPacket::parse_packet(&packet);
                     assert_eq!(nudp_packet.data_length, client.len);
                     assert_eq!(nudp_packet.destination.mac, target_mac);
                     assert_eq!(nudp_packet.destination.socket, target_addr);
 
                     let (counter, target_mac, target_addr) = TestPacket::parse(
-                        frame
+                        packet
                             .slice_at_offset(nudp_packet.data_offset, nudp_packet.data_length)
                             .unwrap(),
                     );
@@ -459,7 +461,7 @@ impl Proxy {
                     assert_eq!(target_addr, udp_packet.destination.socket);
                 }
 
-                tx_slab.push_back(frame);
+                tx_slab.push_back(packet);
             }
 
             let mut enqueued = self.tx.send(&mut tx_slab);

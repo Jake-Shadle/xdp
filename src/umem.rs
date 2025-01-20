@@ -1,11 +1,11 @@
 use crate::{
     bindings::{self, xdp_desc},
     error::{ConfigError, Error},
-    Frame,
+    Packet,
 };
 use std::collections::VecDeque;
 
-/// The frame size (`libc::xdp_umem_reg::chunk_size`) can only be [>=2048 or <=4096](https://github.com/torvalds/linux/blob/c2ee9f594da826bea183ed14f2cc029c719bf4da/Documentation/networking/af_xdp.rst#xdp_umem_reg-setsockopt)
+/// The packet size (`libc::xdp_umem_reg::chunk_size`) can only be [>=2048 or <=4096](https://github.com/torvalds/linux/blob/c2ee9f594da826bea183ed14f2cc029c719bf4da/Documentation/networking/af_xdp.rst#xdp_umem_reg-setsockopt)
 ///
 /// Note: [Kernel source](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/net/xdp/xdp_umem.c#L166-L174)
 #[derive(Copy, Clone)]
@@ -71,14 +71,14 @@ impl Umem {
     }
 
     /// Given an [`xdp_desc`] filled by the kernel, retrieves the memory block
-    /// it points to as a [`Frame`]
+    /// it points to as a [`Packet`]
     ///
     /// # Safety
     ///
-    /// The [`Frame`] returned by this function is pointing to memory owned by
+    /// The [`Packet`] returned by this function is pointing to memory owned by
     /// this [`Umem`], it must not outlive this [`Umem`]
     #[inline]
-    pub unsafe fn frame(&self, desc: xdp_desc) -> Frame {
+    pub unsafe fn packet(&self, desc: xdp_desc) -> Packet {
         // SAFETY: Barring kernel bugs, we should only ever get valid addresses
         // within the range of our map
         unsafe {
@@ -89,7 +89,7 @@ impl Umem {
                 as *mut u8;
             let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
 
-            Frame {
+            Packet {
                 data,
                 head: self.head_room,
                 tail: self.head_room + desc.len as usize,
@@ -99,7 +99,7 @@ impl Umem {
         }
     }
 
-    /// Attempts to allocate a frame from the [`Umem`], returning `None` if there
+    /// Attempts to allocate a packet from the [`Umem`], returning `None` if there
     /// are no available frames.
     ///
     /// # Safety
@@ -107,17 +107,18 @@ impl Umem {
     /// The [`Frame`] returned by this function is pointing to memory owned by
     /// this [`Umem`], it must not outlive this [`Umem`]
     #[inline]
-    pub unsafe fn alloc(&mut self) -> Option<Frame> {
+    pub unsafe fn alloc(&mut self) -> Option<Packet> {
         let addr = self.available.pop_front()?;
 
         unsafe {
-            let addr =
-                self.mmap.as_ptr().byte_offset(
-                    (addr + bindings::XDP_PACKET_HEADROOM + self.head_room as u64) as _,
-                ) as *mut u8;
+            let addr = self
+                .mmap
+                .as_ptr()
+                .byte_offset((addr + bindings::XDP_PACKET_HEADROOM) as _)
+                as *mut u8;
             let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
 
-            Some(Frame {
+            Some(Packet {
                 data,
                 head: self.head_room,
                 tail: self.head_room,
@@ -127,13 +128,24 @@ impl Umem {
         }
     }
 
-    /// Given an address offset, adds the frame it points to to the free list
+    /// Given an address offset, adds the packet it points to to the free list
     ///
-    /// This function assumes that frames are power of 2, and doesn't matter where
-    /// the offset is relative to the frame offset
+    /// This function assumes that frames are power of 2, and thus it doesn't
+    /// matter where the offset is relative to the packet offset
     #[inline]
-    pub(crate) fn free(&mut self, address: u64) {
+    pub(crate) fn free_addr(&mut self, address: u64) {
         self.available.push_front(address & self.frame_mask);
+    }
+
+    #[inline]
+    pub fn free_packet(&mut self, packet: Packet) {
+        self.free_addr(unsafe {
+            packet
+                .data
+                .as_ptr()
+                .byte_offset(packet.head as _)
+                .offset_from(packet.base) as _
+        });
     }
 
     #[inline]
@@ -150,7 +162,7 @@ impl Umem {
             0
         };
 
-        self.free(address);
+        self.free_addr(address);
         timestamp
     }
 
@@ -166,7 +178,7 @@ pub(crate) struct UmemPopper<'umem> {
     available: &'umem mut VecDeque<u64>,
 }
 
-impl<'umem> UmemPopper<'umem> {
+impl UmemPopper<'_> {
     #[inline]
     pub(crate) fn len(&self) -> usize {
         self.available.len()
@@ -186,9 +198,9 @@ impl<'umem> UmemPopper<'umem> {
 /// Using [`UmemCfgBuilder::Default`] will result in a [`Umem`] with 8k frames of
 /// size 4k for a total of 32MiB.
 pub struct UmemCfgBuilder {
-    /// The size of each frame/chunk. Defaults to 4096.
+    /// The size of each packet/chunk. Defaults to 4096.
     pub frame_size: FrameSize,
-    /// The size of the headroom, an offset from the beginning of the frame
+    /// The size of the headroom, an offset from the beginning of the packet
     /// which the kernel will not write data to. Defaults to 0.
     pub head_room: u32,
     /// The number of total frames. Defaults to 8192.
@@ -231,6 +243,7 @@ impl UmemCfgBuilder {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct UmemCfg {
     frame_size: u32,
     frame_count: u32,

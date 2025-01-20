@@ -163,7 +163,7 @@ pub struct NamespaceCtx<'ns> {
     ns: &'ns Namespace,
 }
 
-impl<'ns> Drop for NamespaceCtx<'ns> {
+impl Drop for NamespaceCtx<'_> {
     fn drop(&mut self) {
         if unsafe { libc::setns(self.ns.original.as_raw_fd(), libc::CLONE_NEWNET) } != 0 {
             eprintln!(
@@ -175,6 +175,7 @@ impl<'ns> Drop for NamespaceCtx<'ns> {
 }
 
 impl VirtualDevices {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let (connection, handle, _) = rtnetlink::new_connection().unwrap();
         let thandle = tokio::spawn(connection);
@@ -502,7 +503,7 @@ impl TestBed {
     }
 
     pub fn inside(&self) -> DevInfo {
-        let mut ns = Namespace::new(self.namespace);
+        let ns = Namespace::new(self.namespace);
         let name = format!("{}-i", self.namespace);
         let index = {
             let _c = ns.enter();

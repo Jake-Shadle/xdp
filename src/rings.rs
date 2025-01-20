@@ -69,6 +69,7 @@ impl RingConfigBuilder {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct RingConfig {
     /// The maximum number of entries in the [`RxRing`] or [`WakableRxRing`]
     pub(crate) rx_count: u32,

@@ -1,6 +1,6 @@
 use etherparse::PacketBuilder;
 use std::net::*;
-use xdp::frame::{net_types::*, *};
+use xdp::packet::{net_types::*, *};
 
 const SRC_MAC: MacAddress = MacAddress([0xb4, 0x2e, 0x99, 0x6f, 0xfa, 0x6b]);
 const DST_MAC: MacAddress = MacAddress([0xc4, 0xea, 0x1d, 0xe3, 0x82, 0x4c]);
@@ -12,36 +12,40 @@ const IPV6_DATA: &[u8] = b"I'm an IPv6 packet payload";
 #[test]
 fn parses_ipv4() {
     let mut buf = [0u8; 2048];
-    let mut frame = Frame::testing_new(&mut buf);
+    let mut packet = Packet::testing_new(&mut buf);
 
-    let pb = PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
+    PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
         .ipv4([192, 168, 1, 139], [192, 168, 1, 1], 64)
-        .udp(9000, 10001);
+        .udp(9000, 10001)
+        .write(&mut packet, IPV4_DATA)
+        .unwrap();
 
-    let mut packet = Vec::with_capacity(pb.size(IPV4_DATA.len()));
-    pb.write(&mut packet, IPV4_DATA).unwrap();
-
-    frame.push_slice(&packet).unwrap();
-
-    let udp = net_types::UdpPacket::parse_frame(&frame).unwrap().unwrap();
+    let udp = net_types::UdpPacket::parse_packet(&packet)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         udp.source,
         FullAddress {
             mac: SRC_MAC,
-            ip: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 139)),
-            port: 9000,
+            port: 9000.into(),
         }
     );
     assert_eq!(
         udp.destination,
         FullAddress {
             mac: DST_MAC,
-            ip: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
-            port: 10001,
+            port: 10001.into(),
         }
     );
     assert_eq!(
-        frame
+        udp.ips,
+        IpAddresses::V4 {
+            source: Ipv4Addr::new(192, 168, 1, 139),
+            destination: Ipv4Addr::new(192, 168, 1, 1),
+        }
+    );
+    assert_eq!(
+        packet
             .slice_at_offset(udp.data_offset, udp.data_length)
             .unwrap(),
         IPV4_DATA
@@ -52,40 +56,44 @@ fn parses_ipv4() {
 #[test]
 fn parses_ipv6() {
     let mut buf = [0u8; 2048];
-    let mut frame = Frame::testing_new(&mut buf);
+    let mut packet = Packet::testing_new(&mut buf);
 
     const SRC: std::net::Ipv6Addr =
         std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0x99f0, 0xdcf, 0x4be3, 0xd25a);
     const DST: std::net::Ipv6Addr = std::net::Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb);
 
-    let pb = PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
+    PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
         .ipv6(SRC.octets(), DST.octets(), 64)
-        .udp(5353, 1111);
+        .udp(5353, 1111)
+        .write(&mut packet, IPV6_DATA)
+        .unwrap();
 
-    let mut packet = Vec::with_capacity(pb.size(IPV6_DATA.len()));
-    pb.write(&mut packet, IPV6_DATA).unwrap();
-
-    frame.push_slice(&packet).unwrap();
-
-    let udp = net_types::UdpPacket::parse_frame(&frame).unwrap().unwrap();
+    let udp = net_types::UdpPacket::parse_packet(&packet)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         udp.source,
         FullAddress {
             mac: SRC_MAC,
-            ip: IpAddr::V6(SRC),
-            port: 5353,
+            port: 5353.into(),
         }
     );
     assert_eq!(
         udp.destination,
         FullAddress {
             mac: DST_MAC,
-            ip: IpAddr::V6(DST),
-            port: 1111,
+            port: 1111.into(),
         }
     );
     assert_eq!(
-        frame
+        udp.ips,
+        IpAddresses::V6 {
+            source: SRC,
+            destination: DST,
+        }
+    );
+    assert_eq!(
+        packet
             .slice_at_offset(udp.data_offset, udp.data_length)
             .unwrap(),
         IPV6_DATA
@@ -96,18 +104,15 @@ fn parses_ipv6() {
 #[test]
 fn checksums_ipv4_header() {
     let mut buf = [0u8; 2048];
-    let mut frame = Frame::testing_new(&mut buf);
+    let mut packet = Packet::testing_new(&mut buf);
 
-    let pb = PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
+    PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
         .ipv4([192, 168, 1, 139], [192, 168, 1, 1], 64)
-        .udp(9000, 10001);
+        .udp(9000, 10001)
+        .write(&mut packet, IPV4_DATA)
+        .unwrap();
 
-    let mut packet = Vec::with_capacity(pb.size(IPV4_DATA.len()));
-    pb.write(&mut packet, IPV4_DATA).unwrap();
-
-    frame.push_slice(&packet).unwrap();
-
-    let ip_hdr = frame.item_at_offset_mut::<Ipv4Hdr>(EthHdr::LEN).unwrap();
+    let ip_hdr = packet.item_at_offset_mut::<Ipv4Hdr>(EthHdr::LEN).unwrap();
     let valid_checksum = ip_hdr.check;
     ip_hdr.check = 0;
     ip_hdr.calc_checksum();
@@ -118,42 +123,40 @@ fn checksums_ipv4_header() {
 #[test]
 fn checksums_ipv4_udp() {
     let mut buf = [0u8; 2048];
-    let mut frame = Frame::testing_new(&mut buf);
+    let mut packet = Packet::testing_new(&mut buf);
 
-    let pb = PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
+    PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
         .ipv4([192, 168, 1, 139], [192, 168, 1, 1], 64)
-        .udp(9000, 10001);
+        .udp(9000, 10001)
+        .write(&mut packet, IPV4_DATA)
+        .unwrap();
 
-    let mut packet = Vec::with_capacity(pb.size(IPV4_DATA.len()));
-    pb.write(&mut packet, IPV4_DATA).unwrap();
-
-    frame.push_slice(&packet).unwrap();
-
-    let udp = net_types::UdpPacket::parse_frame(&frame).unwrap().unwrap();
-    assert_eq!(csum::recalc_udp(&mut frame).unwrap(), udp.checksum.0);
+    let udp = net_types::UdpPacket::parse_packet(&packet)
+        .unwrap()
+        .unwrap();
+    assert_eq!(csum::recalc_udp(&mut packet).unwrap(), udp.checksum.0);
 }
 
 /// Ensures we generate the correct IPv6 UDP checksum
 #[test]
 fn checksums_ipv6_udp() {
     let mut buf = [0u8; 2048];
-    let mut frame = Frame::testing_new(&mut buf);
+    let mut packet = Packet::testing_new(&mut buf);
 
     const SRC: std::net::Ipv6Addr =
         std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0x99f0, 0xdcf, 0x4be3, 0xd25a);
     const DST: std::net::Ipv6Addr = std::net::Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb);
 
-    let pb = PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
+    PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
         .ipv6(SRC.octets(), DST.octets(), 64)
-        .udp(5353, 1111);
+        .udp(5353, 1111)
+        .write(&mut packet, IPV6_DATA)
+        .unwrap();
 
-    let mut packet = Vec::with_capacity(pb.size(IPV6_DATA.len()));
-    pb.write(&mut packet, IPV6_DATA).unwrap();
-
-    frame.push_slice(&packet).unwrap();
-
-    let udp = net_types::UdpPacket::parse_frame(&frame).unwrap().unwrap();
-    assert_eq!(csum::recalc_udp(&mut frame).unwrap(), udp.checksum.0);
+    let udp = net_types::UdpPacket::parse_packet(&packet)
+        .unwrap()
+        .unwrap();
+    assert_eq!(csum::recalc_udp(&mut packet).unwrap(), udp.checksum.0);
 }
 
 #[test]

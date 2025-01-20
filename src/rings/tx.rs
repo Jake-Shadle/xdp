@@ -1,7 +1,7 @@
 use super::bindings::*;
-use crate::{Frame, Slab};
+use crate::HeapSlab;
 
-/// The ring used to enqueue frames for the kernel to send
+/// The ring used to enqueue packets for the kernel to send
 pub struct TxRing {
     ring: super::XskProducer<crate::bindings::xdp_desc>,
     _mmap: memmap2::MmapMut,
@@ -36,20 +36,20 @@ impl TxRing {
         })
     }
 
-    /// Enqueues frames to be sent by the kernel
+    /// Enqueues packets to be sent by the kernel
     ///
     /// # Safety
     ///
-    /// The [`Umem`] that owns the frames being sent must outlive the `AF_XDP`
+    /// The [`Umem`] that owns the packets being sent must outlive the `AF_XDP`
     /// socket
     ///
     /// # Returns
     ///
-    /// The number of frames that were actually enqueued. This number can be
-    /// lower than the requested `num_frames` if the Umem didn't have enough
-    /// open slots, or the tx ring had insufficient capacity
-    pub unsafe fn send(&mut self, frames: &mut Slab<Frame>) -> usize {
-        let requested = frames.len();
+    /// The number of packets that were actually enqueued. This number can be
+    /// lower than the requested `num_packets` if the ring doesn't have sufficient
+    /// capacity
+    pub unsafe fn send(&mut self, packets: &mut HeapSlab) -> usize {
+        let requested = packets.len();
         if requested == 0 {
             return 0;
         }
@@ -59,11 +59,11 @@ impl TxRing {
         if actual > 0 {
             let mask = self.ring.mask();
             for i in idx..idx + actual {
-                let Some(frame) = frames.pop_front() else {
+                let Some(packet) = packets.pop_front() else {
                     unreachable!()
                 };
 
-                self.ring[i & mask] = frame.into();
+                self.ring[i & mask] = packet.into();
             }
 
             self.ring.submit(actual as _);
@@ -89,24 +89,20 @@ impl WakableTxRing {
         Ok(Self { inner, socket })
     }
 
-    /// Enqueues frames to be sent by the kernel
+    /// Enqueues packets to be sent by the kernel
     ///
     /// # Safety
     ///
-    /// The [`Umem`] that owns the frames being sent must outlive the `AF_XDP`
+    /// The [`Umem`] that owns the packets being sent must outlive the `AF_XDP`
     /// socket
     ///
     /// # Returns
     ///
-    /// The number of frames that were actually enqueued. This number can be
-    /// lower than the requested `num_frames` if the Umem didn't have enough
-    /// open slots, or the rx ring had insufficient capacity
-    pub unsafe fn send(
-        &mut self,
-        frames: &mut Slab<Frame>,
-        wakeup: bool,
-    ) -> std::io::Result<usize> {
-        let queued = self.inner.send(frames);
+    /// The number of packets that were actually enqueued. This number can be
+    /// lower than the requested `num_packets` if the ring doesn't have sufficient
+    /// capacity
+    pub unsafe fn send(&mut self, packets: &mut HeapSlab, wakeup: bool) -> std::io::Result<usize> {
+        let queued = self.inner.send(packets);
 
         if queued > 0 && wakeup {
             // SAFETY: This is safe, even if the socket descriptor is invalid.

@@ -23,16 +23,43 @@ macro_rules! flag_strings {
         }
 
         Ok(())
-    }}
+    }};
 }
-
-#[derive(Copy, Clone)]
-pub struct NicIndex(pub(crate) u32);
 
 #[derive(Copy, Clone)]
 pub struct NicName {
     arr: [i8; libc::IF_NAMESIZE],
     len: usize,
+}
+
+impl NicName {
+    #[inline]
+    pub fn as_str(&self) -> Option<&str> {
+        std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(self.arr.as_ptr().cast(), self.len)
+        })
+        .ok()
+    }
+}
+
+impl fmt::Debug for NicName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(s) = self.as_str() {
+            f.write_str(s)
+        } else {
+            f.write_str("non utf-8")
+        }
+    }
+}
+
+impl fmt::Display for NicName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(s) = self.as_str() {
+            f.write_str(s)
+        } else {
+            f.write_str("non utf-8")
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -59,6 +86,14 @@ pub enum XdpZeroCopy {
     MultiBuffer(u32),
 }
 
+impl XdpZeroCopy {
+    /// True if the zero copy feature is available
+    #[inline]
+    pub fn is_available(&self) -> bool {
+        !matches!(self, Self::Unavailable)
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct XdpFeatures(u64);
 
@@ -66,14 +101,14 @@ pub struct XdpFeatures(u64);
 #[derive(Copy, Clone)]
 pub enum XdpAct {
     /// XDP features supported by all drivers
-    /// 
+    ///
     /// - `XDP_ABORTED` - Drop packet with tracepoint exception
     /// - `XDP_DROP` - Silently drop packet
     /// - `XDP_PASS` - Let packet continue through the normal network stack
     /// - `XDP_TX` - Bounce packet back to the NIC it arrived on
     Basic = 1 << 0,
     /// `XDP_REDIRECT` is supported
-    /// 
+    ///
     /// Packets can be redirected to another NIC or to an `AF_XDP` socket.
     Redirect = 1 << 1,
     /// The driver implements the [`ndo_xdp_xmit`](https://github.com/xdp-project/xdp-project/blob/master/areas/core/redesign01_ndo_xdp_xmit.org)
@@ -113,7 +148,7 @@ impl fmt::Debug for XdpFeatures {
 
 impl XdpFeatures {
     /// XDP features supported by all drivers
-    /// 
+    ///
     /// - `XDP_ABORTED` - Drop packet with tracepoint exception
     /// - `XDP_DROP` - Silently drop packet
     /// - `XDP_PASS` - Let packet continue through the normal network stack
@@ -124,7 +159,7 @@ impl XdpFeatures {
     }
 
     /// `XDP_REDIRECT` is supported
-    /// 
+    ///
     /// Packets can be redirected to another NIC or to an `AF_XDP` socket.
     #[inline]
     pub fn redirect(self) -> bool {
@@ -146,7 +181,10 @@ impl fmt::Debug for XdpRxMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         flag_strings!(
             [
-                (RxMetadataFlags::Timestamp, "NETDEV_XDP_RX_METADATA_TIMESTAMP"),
+                (
+                    RxMetadataFlags::Timestamp,
+                    "NETDEV_XDP_RX_METADATA_TIMESTAMP"
+                ),
                 (RxMetadataFlags::Hash, "NETDEV_XDP_RX_METADATA_HASH"),
                 (RxMetadataFlags::VlanTag, "NETDEV_XDP_RX_METADATA_VLAN_TAG"),
             ],
@@ -238,15 +276,8 @@ pub struct NetdevCapabilities {
     pub tx_metadata: XdpTxMetadata,
 }
 
-impl NicName {
-    #[inline]
-    pub fn as_str(&self) -> Option<&str> {
-        std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(self.arr.as_ptr().cast(), self.len)
-        })
-        .ok()
-    }
-}
+#[derive(Copy, Clone)]
+pub struct NicIndex(pub(crate) u32);
 
 impl NicIndex {
     pub fn new(index: u32) -> Self {
@@ -289,6 +320,63 @@ impl NicIndex {
             Ok(NicName { arr: name, len })
         } else {
             Err(std::io::Error::last_os_error())
+        }
+    }
+
+    /// Retrieves the [`std::net::Ipv4Addr] and/or [`std::net::Ipv6Addr`] associated
+    /// with this network interface
+    pub fn addresses(
+        &self,
+    ) -> std::io::Result<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>)> {
+        unsafe {
+            let mut ifaddrs = std::mem::MaybeUninit::<*mut libc::ifaddrs>::uninit();
+            if libc::getifaddrs(ifaddrs.as_mut_ptr()) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            let ifaddrs = ifaddrs.assume_init();
+            let mut cur = ifaddrs.as_ref();
+
+            struct Ifaddrs(*mut libc::ifaddrs);
+            impl Drop for Ifaddrs {
+                fn drop(&mut self) {
+                    unsafe { libc::freeifaddrs(self.0) };
+                }
+            }
+
+            let _ifa = Ifaddrs(ifaddrs);
+            let name = self.name()?;
+
+            let mut ipv4 = None;
+            let mut ipv6 = None;
+
+            while let Some(ifaddr) = cur {
+                cur = ifaddr.ifa_next.as_ref();
+
+                if libc::strncmp(name.arr.as_ptr(), ifaddr.ifa_name, name.len as _) != 0 {
+                    continue;
+                }
+
+                let Some(addr) = ifaddr.ifa_addr.as_ref() else {
+                    continue;
+                };
+
+                match addr.sa_family as libc::c_int {
+                    libc::AF_INET => {
+                        let addr = &*ifaddr.ifa_addr.cast::<libc::sockaddr_in>();
+                        ipv4 = Some(std::net::Ipv4Addr::from_bits(u32::from_be(
+                            addr.sin_addr.s_addr,
+                        )));
+                    }
+                    libc::AF_INET6 => {
+                        let addr = &*ifaddr.ifa_addr.cast::<libc::sockaddr_in6>();
+                        ipv6 = Some(addr.sin6_addr.s6_addr.into());
+                    }
+                    _ => continue,
+                }
+            }
+
+            Ok((ipv4, ipv6))
         }
     }
 
@@ -419,14 +507,18 @@ impl NicIndex {
                         channels.tx_count += 1;
                     }
                 }
-
-
             }
         }
 
         Ok((
-            channels.max_rx.max(channels.max_tx).max(channels.max_combined),
-            channels.rx_count.max(channels.tx_count).max(channels.combined_count),
+            channels
+                .max_rx
+                .max(channels.max_tx)
+                .max(channels.max_combined),
+            channels
+                .rx_count
+                .max(channels.tx_count)
+                .max(channels.combined_count),
         ))
     }
 
@@ -588,8 +680,10 @@ impl NicIndex {
                         continue;
                     }
 
-                    zero_copy_max_segs = get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
-                    rx_metadata_features = get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
+                    zero_copy_max_segs =
+                        get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
+                    rx_metadata_features =
+                        get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
                     xsk_features = get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0);
                 }
 
@@ -636,11 +730,13 @@ impl PartialEq<u32> for NicIndex {
     }
 }
 
-#[cfg(test)]
-mod test {
-    #[test]
-    fn gets_features() {
-        let nic = super::NicIndex::lookup_by_name("enp117s0f1").unwrap().unwrap();
-        dbg!(nic.query_capabilities().unwrap());
-    }
-}
+// #[cfg(test)]
+// mod test {
+//     #[test]
+//     fn gets_features() {
+//         let nic = super::NicIndex::lookup_by_name("enp117s0f1")
+//             .unwrap()
+//             .unwrap();
+//         dbg!(nic.query_capabilities().unwrap());
+//     }
+// }

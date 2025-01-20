@@ -33,13 +33,13 @@ impl CompletionRing {
         })
     }
 
-    /// Dequeues up to `num_frames` and makes them available for use again
+    /// Dequeues up to `num_packets` and makes them available for use again
     ///
     /// # Returns
     ///
-    /// The number of frames that were actually dequeued.
-    pub fn dequeue(&mut self, umem: &mut Umem, num_frames: usize) -> usize {
-        let requested = num_frames;
+    /// The number of packets that were actually dequeued.
+    pub fn dequeue(&mut self, umem: &mut Umem, num_packets: usize) -> usize {
+        let requested = num_packets;
         if requested == 0 {
             return 0;
         }
@@ -50,7 +50,7 @@ impl CompletionRing {
             let mask = self.ring.mask();
             for i in idx..idx + actual {
                 let addr = self.ring[i & mask];
-                umem.free(addr);
+                umem.free_addr(addr);
             }
 
             self.ring.release(actual as _);
@@ -59,10 +59,10 @@ impl CompletionRing {
         actual
     }
 
-    /// The same as [`Self::dequeue`], except the timestamp each frame was
+    /// The same as [`Self::dequeue`], except the timestamp each packet was
     /// transmitted is written to the provided slice.
     ///
-    /// Note this requires that [`Frame::set_tx_metadata`] was called
+    /// Note this requires that [`Packet::set_tx_metadata`] was called
     pub fn dequeue_with_timestamps(&mut self, umem: &mut Umem, timestamps: &mut [u64]) -> usize {
         let requested = timestamps.len();
         if requested == 0 {

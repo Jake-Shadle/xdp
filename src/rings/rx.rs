@@ -1,7 +1,7 @@
 use super::bindings::*;
-use crate::{Frame, Slab, Umem};
+use crate::{HeapSlab, Umem};
 
-/// Ring from which we can dequeue frames that have been filled by the kernel
+/// Ring from which we can dequeue packets that have been filled by the kernel
 pub struct RxRing {
     ring: super::XskConsumer<crate::bindings::xdp_desc>,
     _mmap: memmap2::MmapMut,
@@ -30,21 +30,21 @@ impl RxRing {
         })
     }
 
-    /// Pops frames that have finished receiving
+    /// Pops packets that have finished receiving
     ///
-    /// The number of frames returned will be the minimum of the number of frames
+    /// The number of packets returned will be the minimum of the number of packets
     /// actually available in the ring, and the remaining capacity in the slab
     ///
     /// # Returns
     ///
-    /// The number of actual frames that were pushed to the slab
+    /// The number of actual packets that were pushed to the slab
     ///
     /// # Safety
     ///
-    /// The frames returned in the slab must not outlive the [`Umem`]
+    /// The packets returned in the slab must not outlive the [`Umem`]
     #[inline]
-    pub unsafe fn recv(&mut self, umem: &Umem, frames: &mut Slab<Frame>) -> usize {
-        let nb = frames.available();
+    pub unsafe fn recv(&mut self, umem: &Umem, packets: &mut HeapSlab) -> usize {
+        let nb = packets.available();
         if nb == 0 {
             return 0;
         }
@@ -52,18 +52,18 @@ impl RxRing {
         let (actual, idx) = self.ring.peek(nb as _);
 
         if actual > 0 {
-            self.do_recv(actual, idx, umem, frames);
+            self.do_recv(actual, idx, umem, packets);
         }
 
         actual
     }
 
     #[inline]
-    unsafe fn do_recv(&mut self, actual: usize, idx: usize, umem: &Umem, frames: &mut Slab<Frame>) {
+    unsafe fn do_recv(&mut self, actual: usize, idx: usize, umem: &Umem, packets: &mut HeapSlab) {
         let mask = self.ring.mask();
         for i in idx..idx + actual {
             let desc = self.ring[i & mask];
-            frames.push_back(umem.frame(desc));
+            packets.push_back(umem.packet(desc));
         }
 
         self.ring.release(actual as _);

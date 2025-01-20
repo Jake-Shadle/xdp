@@ -6,7 +6,7 @@ use crate::bindings;
 use std::fmt;
 
 #[derive(Debug)]
-pub enum FrameError {
+pub enum PacketError {
     InsufficientHeadroom {
         diff: usize,
         head: usize,
@@ -23,9 +23,21 @@ pub enum FrameError {
     },
 }
 
-impl std::error::Error for FrameError {}
+impl PacketError {
+    #[inline]
+    pub fn discriminant(&self) -> &'static str {
+        match self {
+            Self::InsufficientHeadroom { .. } => "insufficient headroom",
+            Self::InvalidPacketLength {} => "invalid packet length",
+            Self::InvalidOffset { .. } => "invalid offset",
+            Self::InsufficientData { .. } => "insufficient data",
+        }
+    }
+}
 
-impl fmt::Display for FrameError {
+impl std::error::Error for PacketError {}
+
+impl fmt::Display for PacketError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -33,6 +45,10 @@ impl fmt::Display for FrameError {
 
 /// Marker trait used to indicate the type is a POD and can be safely converted
 /// to and from raw bytes
+///
+/// # Safety
+///
+/// See [`std::mem::zeroed`]
 pub unsafe trait Pod: Sized {
     #[inline]
     fn size() -> usize {
@@ -64,7 +80,7 @@ pub enum CsumOffload {
     None,
 }
 
-/// A frame of data which can be received by the kernel or sent by userspace
+/// A packet of data which can be received by the kernel or sent by userspace
 ///
 /// ```text
 /// ┌───────────────┌─────────────────────────────────────────────┌─────────────┐
@@ -76,7 +92,7 @@ pub enum CsumOffload {
 ///                 head                                          tail           
 /// ```
 ///
-/// The packet portion of the frame is then composed of the various layers/data,
+/// The packet portion of the packet is then composed of the various layers/data,
 /// for example an IPv4 UDP packet:
 ///
 /// ```text
@@ -88,8 +104,8 @@ pub enum CsumOffload {
 /// │               │                    │        │          │    
 ///  head            +14                  +34      +42        tail
 /// ```
-pub struct Frame {
-    /// The entire frame buffer, including headroom, initialized packet contents,
+pub struct Packet {
+    /// The entire packet buffer, including headroom, initialized packet contents,
     /// and uninitialized/empty remainder
     pub(crate) data: &'static mut [u8],
     /// The offset in data where the packet starts
@@ -100,13 +116,13 @@ pub struct Frame {
     pub(crate) options: u32,
 }
 
-impl Frame {
+impl Packet {
     /// Only used for testing
     pub fn testing_new(buf: &mut [u8]) -> Self {
         assert_eq!(buf.len(), 2 * 1024);
         unsafe {
             Self {
-                data: std::mem::transmute(buf),
+                data: std::mem::transmute::<&mut [u8], &'static mut [u8]>(buf),
                 head: bindings::XDP_PACKET_HEADROOM as _,
                 tail: bindings::XDP_PACKET_HEADROOM as _,
                 base: std::ptr::null(),
@@ -115,29 +131,30 @@ impl Frame {
         }
     }
 
-    /// The number of initialized/valid bytes in the frame
+    /// The number of initialized/valid bytes in the packet
     #[inline]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.tail - self.head
     }
 
-    /// The total capacity of the frame.
+    /// The total capacity of the packet.
     ///
     /// Note that this never includes the [`crate::bindings::XDP_PACKET_HEADROOM`]
-    /// part of every frame
+    /// part of every packet
     #[inline]
     pub fn capacity(&self) -> usize {
         self.data.len()
     }
 
-    /// If true, this frame is partial, and the next frame in the RX continues
-    /// this frame, until this returns fals
+    /// If true, this packet is partial, and the next packet in the RX continues
+    /// this packet, until this returns fals
     #[inline]
     pub fn is_continued(&self) -> bool {
         (self.options & bindings::XdpFlags::XDP_PKT_CONTD as u32) != 0
     }
 
-    /// Checks if the NIC this frame is being sent on supports tx checksum offload
+    /// Checks if the NIC this packet is being sent on supports tx checksum offload
     ///
     /// TODO: Create a different type to indicate checksum since it's not going
     /// to change so the user can choose at init time whether they want checksum
@@ -155,11 +172,11 @@ impl Frame {
     ///
     /// Adjusting the head down requires that headroom was configured for the [`Umem`]
     #[inline]
-    pub fn adjust_head(&mut self, diff: i32) -> Result<(), FrameError> {
+    pub fn adjust_head(&mut self, diff: i32) -> Result<(), PacketError> {
         if diff < 0 {
             let diff = diff.unsigned_abs() as usize;
             if diff > self.head {
-                return Err(FrameError::InsufficientHeadroom {
+                return Err(PacketError::InsufficientHeadroom {
                     diff,
                     head: self.head,
                 });
@@ -169,7 +186,7 @@ impl Frame {
         } else {
             let diff = diff as usize;
             if self.head + diff > self.tail {
-                return Err(FrameError::InvalidPacketLength {});
+                return Err(PacketError::InvalidPacketLength {});
             }
 
             self.head += diff;
@@ -183,11 +200,11 @@ impl Frame {
     /// This method is the equivalent of [`bpf_xdp_adjust_tail`](https://docs.ebpf.io/linux/helper-function/bpf_xdp_adjust_tail/),
     /// and allows extending or truncating the data portion of a packet
     #[inline]
-    pub fn adjust_tail(&mut self, diff: i32) -> Result<(), FrameError> {
+    pub fn adjust_tail(&mut self, diff: i32) -> Result<(), PacketError> {
         if diff < 0 {
             let diff = diff.unsigned_abs() as usize;
             if diff > self.tail || self.tail - diff < self.head {
-                return Err(FrameError::InsufficientHeadroom {
+                return Err(PacketError::InsufficientHeadroom {
                     diff,
                     head: self.head,
                 });
@@ -197,7 +214,7 @@ impl Frame {
         } else {
             let diff = diff as usize;
             if self.tail + diff > self.data.len() {
-                return Err(FrameError::InvalidPacketLength {});
+                return Err(PacketError::InvalidPacketLength {});
             }
 
             self.tail += diff;
@@ -213,10 +230,10 @@ impl Frame {
     /// - The offset is not within bounds
     /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn item_at_offset<T: Pod>(&self, offset: usize) -> Result<&T, FrameError> {
+    pub fn item_at_offset<T: Pod>(&self, offset: usize) -> Result<&T, PacketError> {
         let start = self.head + offset;
         if start > self.tail {
-            return Err(FrameError::InvalidOffset {
+            return Err(PacketError::InvalidOffset {
                 offset,
                 length: self.tail - self.head,
             });
@@ -224,14 +241,14 @@ impl Frame {
 
         let size = std::mem::size_of::<T>();
         if start + size > self.tail {
-            return Err(FrameError::InsufficientData {
+            return Err(PacketError::InsufficientData {
                 offset,
                 size,
                 length: self.tail - offset,
             });
         }
 
-        Ok(unsafe { &*(self.data.as_ptr().byte_offset((self.head + offset) as _) as *const T) })
+        Ok(unsafe { &*(self.data.as_ptr().byte_offset(start as _) as *const T) })
     }
 
     /// Retrieves a mutable `T` beginning at the specified offset
@@ -241,10 +258,10 @@ impl Frame {
     /// - The offset is not within bounds
     /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn item_at_offset_mut<T: Pod>(&mut self, offset: usize) -> Result<&mut T, FrameError> {
+    pub fn item_at_offset_mut<T: Pod>(&mut self, offset: usize) -> Result<&mut T, PacketError> {
         let start = self.head + offset;
         if start > self.tail {
-            return Err(FrameError::InvalidOffset {
+            return Err(PacketError::InvalidOffset {
                 offset,
                 length: self.tail - self.head,
             });
@@ -252,7 +269,7 @@ impl Frame {
 
         let size = std::mem::size_of::<T>();
         if start + size > self.tail {
-            return Err(FrameError::InsufficientData {
+            return Err(PacketError::InsufficientData {
                 offset,
                 size,
                 length: self.tail - offset,
@@ -274,17 +291,17 @@ impl Frame {
     /// - The offset is not within bounds
     /// - The offset + len is not within bounds
     #[inline]
-    pub fn slice_at_offset(&self, offset: usize, len: usize) -> Result<&[u8], FrameError> {
+    pub fn slice_at_offset(&self, offset: usize, len: usize) -> Result<&[u8], PacketError> {
         let start = self.head + offset;
         if start > self.tail {
-            return Err(FrameError::InvalidOffset {
+            return Err(PacketError::InvalidOffset {
                 offset,
                 length: self.tail - self.head,
             });
         }
 
         if start + len > self.tail {
-            return Err(FrameError::InsufficientData {
+            return Err(PacketError::InsufficientData {
                 offset,
                 size: len,
                 length: self.tail - offset,
@@ -305,10 +322,10 @@ impl Frame {
         &mut self,
         offset: usize,
         len: usize,
-    ) -> Result<&mut [u8], FrameError> {
+    ) -> Result<&mut [u8], PacketError> {
         let start = self.head + offset;
         if start + len > self.tail {
-            return Err(FrameError::InsufficientData {
+            return Err(PacketError::InsufficientData {
                 offset,
                 size: len,
                 length: self.tail - offset,
@@ -325,10 +342,10 @@ impl Frame {
     /// - The offset is not within bounds
     /// - The offset + `N` is not within bounds
     #[inline]
-    pub fn array_at_offset<const N: usize>(&self, offset: usize) -> Result<[u8; N], FrameError> {
+    pub fn array_at_offset<const N: usize>(&self, offset: usize) -> Result<[u8; N], PacketError> {
         let start = self.head + offset;
         if start + N > self.tail {
-            return Err(FrameError::InsufficientData {
+            return Err(PacketError::InsufficientData {
                 offset,
                 size: N,
                 length: self.tail - offset,
@@ -340,18 +357,34 @@ impl Frame {
         Ok(data)
     }
 
-    /// Pushes a slice of bytes to the frame, extending the tail
+    /// Inserts a slice at the specified offset, shifting any bytes above offset
+    /// by `slice.len()`
     ///
     /// # Errors
     ///
-    /// The slice would extend the tail beyond the frame's capacity
+    /// - The offset is not within bounds
+    /// - The offset + `slice.len()` would exceed the capacity
     #[inline]
-    pub fn push_slice(&mut self, slice: &[u8]) -> Result<(), FrameError> {
+    pub fn insert(&mut self, offset: usize, slice: &[u8]) -> Result<(), PacketError> {
         if self.tail + slice.len() > self.data.len() {
-            return Err(FrameError::InvalidPacketLength {});
+            return Err(PacketError::InvalidPacketLength {});
         }
 
-        self.data[self.tail..self.tail + slice.len()].copy_from_slice(slice);
+        let adjusted_offset = self.head + offset;
+        let shift = self.tail + self.head - adjusted_offset;
+        if shift > 0 {
+            unsafe {
+                std::ptr::copy(
+                    self.data.as_ptr().byte_offset(adjusted_offset as isize),
+                    self.data
+                        .as_mut_ptr()
+                        .byte_offset((adjusted_offset + slice.len()) as isize),
+                    shift,
+                );
+            }
+        }
+
+        self.data[adjusted_offset..adjusted_offset + slice.len()].copy_from_slice(slice);
         self.tail += slice.len();
         Ok(())
     }
@@ -362,17 +395,17 @@ impl Frame {
     /// was true.
     ///
     /// - If `csum` is `CsumOffload::Request`, this will request that the Layer 4
-    /// checksum computation be offload to the NIC before transmission. Note that
-    /// this requires that the IP pseudo header checksum be calculated and stored
-    /// in the same location.
+    ///     checksum computation be offload to the NIC before transmission. Note that
+    ///     this requires that the IP pseudo header checksum be calculated and stored
+    ///     in the same location.
     /// - If `request_timestamp` is true, requests that the NIC write the timestamp
-    /// the frame was transmitted. This can be retrieved using [`crate::CompletionRing::dequeue_with_timestamps`]
+    ///     the packet was transmitted. This can be retrieved using [`crate::CompletionRing::dequeue_with_timestamps`]
     #[inline]
     pub fn set_tx_metadata(
         &mut self,
         csum: CsumOffload,
         request_timestamp: bool,
-    ) -> Result<(), FrameError> {
+    ) -> Result<(), PacketError> {
         // This would mean the user is requesting to set tx metadata...but not actually do anything
         debug_assert!(request_timestamp || matches!(csum, CsumOffload::Request { .. }));
 
@@ -399,38 +432,63 @@ impl Frame {
     }
 }
 
+impl std::ops::Deref for Packet {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        &self.data[self.head..self.tail]
+    }
+}
+
 use crate::bindings::xdp_desc;
 
-impl From<Frame> for xdp_desc {
-    fn from(frame: Frame) -> Self {
-        if (frame.options & bindings::XdpFlags::XDP_TX_METADATA as u32) == 0 {
+impl From<Packet> for xdp_desc {
+    fn from(packet: Packet) -> Self {
+        if (packet.options & bindings::XdpFlags::XDP_TX_METADATA as u32) == 0 {
             xdp_desc {
                 // SAFETY:
                 addr: unsafe {
-                    frame
+                    packet
                         .data
                         .as_ptr()
-                        .byte_offset(frame.head as _)
-                        .offset_from(frame.base) as _
+                        .byte_offset(packet.head as _)
+                        .offset_from(packet.base) as _
                 },
-                len: (frame.tail - frame.head) as _,
-                options: frame.options & !(bindings::InternalXdpFlags::Mask as u32),
+                len: (packet.tail - packet.head) as _,
+                options: packet.options & !(bindings::InternalXdpFlags::Mask as u32),
             }
         } else {
             xdp_desc {
                 addr: unsafe {
-                    frame
+                    packet
                         .data
                         .as_ptr()
                         .byte_offset(
-                            (frame.head + std::mem::size_of::<bindings::xsk_tx_metadata>()) as _,
+                            (packet.head + std::mem::size_of::<bindings::xsk_tx_metadata>()) as _,
                         )
-                        .offset_from(frame.base) as _
+                        .offset_from(packet.base) as _
                 },
-                len: (frame.tail - frame.head - std::mem::size_of::<bindings::xsk_tx_metadata>())
+                len: (packet.tail - packet.head - std::mem::size_of::<bindings::xsk_tx_metadata>())
                     as _,
-                options: frame.options & !(bindings::InternalXdpFlags::Mask as u32),
+                options: packet.options & !(bindings::InternalXdpFlags::Mask as u32),
             }
         }
+    }
+}
+
+impl std::io::Write for Packet {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self.insert(self.tail - self.head, buf) {
+            Ok(()) => Ok(buf.len()),
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "not enough space available in packet",
+            )),
+        }
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }

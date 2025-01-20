@@ -8,9 +8,9 @@
 
 #![allow(non_camel_case_types)]
 
-/// The size in bytes of the [headroom](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/include/uapi/linux/bpf.h#L6432) reserved by the kernel for each xdp frame
+/// The size in bytes of the [headroom](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/include/uapi/linux/bpf.h#L6432) reserved by the kernel for each xdp packet
 pub const XDP_PACKET_HEADROOM: u64 = 256;
-/// The default frame size used by [libxdp](https://github.com/xdp-project/xdp-tools/blob/3b199c0c185d4603406e6324ca5783b157c0e492/headers/xdp/xsk.h#L194)
+/// The default packet size used by [libxdp](https://github.com/xdp-project/xdp-tools/blob/3b199c0c185d4603406e6324ca5783b157c0e492/headers/xdp/xsk.h#L194)
 pub const XSK_UMEM_DEFAULT_FRAME_SIZE: u32 = 4096;
 
 /// Flags that can be present in [`xdp_desc::options`]
@@ -18,7 +18,7 @@ pub const XSK_UMEM_DEFAULT_FRAME_SIZE: u32 = 4096;
 #[repr(u32)]
 pub enum XdpFlags {
     /// Flag indicating that the packet continues with the buffer pointed out by the
-    /// next frame in the ring.
+    /// next packet in the ring.
     ///
     /// The end of the packet is signalled by setting this bit to zero. For single
     /// buffer packets, every descriptor has 'options' set to 0 and this maintains
@@ -35,27 +35,27 @@ pub enum InternalXdpFlags {
     Mask = 0xf0000000,
 }
 
-/// An RX/TX frame descriptor describing an area of a [`Umem`](crate::umem::Umem)
+/// An RX/TX packet descriptor describing an area of a [`Umem`](crate::umem::Umem)
 ///
 /// For RX, this is filled by the kernel, for TX it is filled by userspace
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct xdp_desc {
     /// The offset from the beginning of the [`Umem`](crate::umem::Umem) where
-    /// a frame's data starts.
+    /// a packet's data starts.
     ///
     /// Note that this offset is always >= the [`XDP_PACKET_HEADROOM`] from the
-    /// _actual_ start of the frame, eg. frame 0 of the umem would have an addr
+    /// _actual_ start of the packet, eg. packet 0 of the umem would have an addr
     /// of [`XDP_PACKET_HEADROOM`]
     pub addr: u64,
     /// The length of the packet in bytes
     pub len: u32,
-    /// The options for the frame
+    /// The options for the packet
     ///
     /// For frames being received, this will either be 0 or [`XdpFlags::XDP_PKT_CONTD`]
     ///
     /// For frames being sent, this can additionally be [`XdpFlags::XDP_TX_METADATA`] to
-    /// indicate that an [`xsk_tx_metadata`] has been filled for the frame
+    /// indicate that an [`xsk_tx_metadata`] has been filled for the packet
     pub options: u32,
 }
 
@@ -95,11 +95,11 @@ pub struct xsk_tx_metadata {
     /// field must be set.
     ///
     /// When using [`XDP_TXMD_FLAGS_CHECKSUM`], the [`xsk_tx_offload::completion`]
-    /// field will be set when the kernel gives back the frame in the completion ring
+    /// field will be set when the kernel gives back the packet in the completion ring
     pub offload: xsk_tx_offload,
 }
 
-unsafe impl crate::frame::Pod for xsk_tx_metadata {}
+unsafe impl crate::packet::Pod for xsk_tx_metadata {}
 
 /// The bindings specific to the various rings used by `AF_XDP` sockets.
 ///

@@ -1,4 +1,4 @@
 # All tests require elevated priveleges due to the need to create AF_XDP
 # sockets, spinup veth interfaces, and to load eBPF programs
 [target.'cfg(target_os = "linux")']
-runner = "sudo -E"
+#runner = "sudo -E"

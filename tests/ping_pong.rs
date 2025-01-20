@@ -1,8 +1,9 @@
+#![cfg(any())]
 //! Tests ping ponging a UDP packet between a client and server on separate veth interfaces
 
 use test_utils::netlink::*;
 use umem::UmemCfgBuilder;
-use xdp::{frame::net_types::*, socket::*, *};
+use xdp::{packet::net_types::*, socket::*, *};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn ping_pong() {
@@ -31,7 +32,7 @@ async fn ping_pong() {
 
     //bind_flags.force_zerocopy();
     let socket = sb
-        .bind(outside.index.into(), 0, bind_flags)
+        .bind(outside.index, 0, bind_flags)
         .expect("failed to bind socket");
 
     let mut bpf = test_utils::Bpf::load(std::iter::once(socket.raw_fd()));
@@ -39,7 +40,7 @@ async fn ping_pong() {
     let _attach2 = {
         let _ns = inside.ns.as_mut().unwrap().enter();
 
-        dummy.attach(inside.index.into(), test_utils::XdpFlags::DRV_MODE);
+        dummy.attach(inside.index.into(), test_utils::XdpFlags::DRV_MODE)
     };
     let _attach1 = bpf.attach(outside.index.into(), test_utils::XdpFlags::DRV_MODE);
 
@@ -73,7 +74,7 @@ async fn ping_pong() {
         s.spawn(|| {
             println!("waiting on ping...");
 
-            let mut slab = Slab::with_capacity(1);
+            let mut slab = HeapSlab::with_capacity(1);
 
             // The entry we queued up in the fill ring is now filled, get it
             loop {
@@ -85,48 +86,51 @@ async fn ping_pong() {
 
             rxed.store(true, std::sync::atomic::Ordering::Relaxed);
 
-            let mut frame = slab.pop_front().unwrap();
+            let mut packet = slab.pop_front().unwrap();
 
-            let udp_packet = UdpPacket::parse_frame(&frame).unwrap().unwrap();
+            let udp_packet = UdpPacket::parse_packet(&packet).unwrap().unwrap();
 
             assert_eq!(udp_packet.data_length, 4);
 
             // Mutate the packet, swapping the source and destination in each layer
             let mut offset = 0;
             {
-                let eth: &mut EthHdr = frame.item_at_offset_mut(offset).unwrap();
+                let eth: &mut EthHdr = packet.item_at_offset_mut(offset).unwrap();
                 offset += EthHdr::LEN;
                 eth.destination = udp_packet.source.mac;
                 eth.source.0 = outside.mac; //udp_packet.destination.ethernet;
             }
 
-            {
-                let ip: &mut Ipv4Hdr = frame.item_at_offset_mut(offset).unwrap();
+            let destination = {
+                let ip: &mut Ipv4Hdr = packet.item_at_offset_mut(offset).unwrap();
                 offset += Ipv4Hdr::LEN;
-                let std::net::IpAddr::V4(source) = udp_packet.destination.ip else {
-                    unreachable!()
-                };
-                let std::net::IpAddr::V4(destination) = udp_packet.source.ip else {
+
+                let IpAddresses::V4 {
+                    source,
+                    destination,
+                } = udp_packet.ips
+                else {
                     unreachable!()
                 };
 
-                ip.source = source.to_bits().into();
-                ip.destination = destination.to_bits().into();
-            }
+                ip.source = destination.to_bits().into();
+                ip.destination = source.to_bits().into();
+                source
+            };
 
             {
-                let udp: &mut UdpHdr = frame.item_at_offset_mut(offset).unwrap();
+                let udp: &mut UdpHdr = packet.item_at_offset_mut(offset).unwrap();
                 //offset += UdpHdr::LEN;
                 udp.check = 0;
-                udp.dest = udp_packet.source.port.into();
-                udp.source = udp_packet.destination.port.into();
+                udp.dest = udp_packet.source.port;
+                udp.source = udp_packet.destination.port;
             }
 
             println!(
-                "sending pong to {}:{}...",
-                udp_packet.source.ip, udp_packet.source.port
+                "sending pong to {destination}:{}...",
+                udp_packet.source.port
             );
-            slab.push_back(frame);
+            slab.push_back(packet);
             assert_eq!(unsafe { tx.send(&mut slab) }, 1);
 
             println!("waiting tx finish...");

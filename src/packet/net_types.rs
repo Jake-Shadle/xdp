@@ -2,7 +2,11 @@
 //! so one does not need to depend on eg. network-types which lacks comments
 
 use super::{csum, Pod};
-use std::{fmt, mem::size_of};
+use std::{
+    fmt,
+    mem::size_of,
+    net::{Ipv4Addr, Ipv6Addr},
+};
 
 macro_rules! len {
     ($record:ty) => {
@@ -16,7 +20,7 @@ macro_rules! len {
 
 macro_rules! net_int {
     ($name:ident, $int:ty, $fmt:literal) => {
-        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(C)]
         pub struct $name(pub $int);
 
@@ -37,6 +41,12 @@ macro_rules! net_int {
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, $fmt, self.0)
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, $fmt, self.host())
             }
         }
     };
@@ -423,6 +433,15 @@ pub struct Ipv4Hdr {
 }
 
 impl Ipv4Hdr {
+    /// Zeroes out the header
+    #[inline]
+    pub fn reset(&mut self, ttl: u8, proto: IpProto) {
+        *self = Self::zeroed();
+        self.bitfield = 0x0045;
+        self.time_to_live = ttl;
+        self.proto = proto;
+    }
+
     /// Gets the [Internet Header Length](https://en.wikipedia.org/wiki/IPv4#IHL),
     /// the total length of the header, including options, in bytes
     ///
@@ -448,7 +467,8 @@ len!(Ipv4Hdr);
 #[repr(C)]
 pub struct Ipv6Hdr {
     bitfield: u32,
-    /// The payload length of the packet, which is similar
+    /// The payload length of the packet, note that for Ipv6 this does not include
+    /// the base header length of 40
     pub payload_length: NetworkU16,
     /// The next header, usually the transport layer protocol, but could be one
     /// or more [extension headers](https://en.wikipedia.org/wiki/IPv6_packet#Extension_headers)
@@ -463,6 +483,18 @@ pub struct Ipv6Hdr {
     pub source: [u8; 16],
     /// The destination [IP](https://en.wikipedia.org/wiki/IPv6_address)
     pub destination: [u8; 16],
+}
+
+impl Ipv6Hdr {
+    /// Zeroes out the header
+    #[inline]
+    pub fn reset(&mut self, hop: u8, proto: IpProto) {
+        *self = Self::zeroed();
+
+        self.bitfield = 0x00000060;
+        self.next_header = proto;
+        self.hop_limit = hop;
+    }
 }
 
 len!(Ipv6Hdr);
@@ -486,56 +518,108 @@ pub struct UdpHdr {
 
 len!(UdpHdr);
 
-use std::net::IpAddr;
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FullAddress {
     pub mac: MacAddress,
-    pub ip: IpAddr,
-    pub port: u16,
+    pub port: NetworkU16,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IpAddresses {
+    V4 {
+        source: Ipv4Addr,
+        destination: Ipv4Addr,
+    },
+    V6 {
+        source: Ipv6Addr,
+        destination: Ipv6Addr,
+    },
+}
+
+use std::net::IpAddr;
+
+impl IpAddresses {
+    #[inline]
+    pub fn source(&self) -> IpAddr {
+        match self {
+            Self::V4 { source, .. } => (*source).into(),
+            Self::V6 { source, .. } => (*source).into(),
+        }
+    }
+
+    #[inline]
+    pub fn destination(&self) -> IpAddr {
+        match self {
+            Self::V4 { destination, .. } => (*destination).into(),
+            Self::V6 { destination, .. } => (*destination).into(),
+        }
+    }
+
+    #[inline]
+    pub fn both(&self) -> (IpAddr, IpAddr) {
+        match self {
+            Self::V4 {
+                source,
+                destination,
+                ..
+            } => ((*source).into(), (*destination).into()),
+            Self::V6 {
+                source,
+                destination,
+                ..
+            } => ((*source).into(), (*destination).into()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UdpPacket {
     pub source: FullAddress,
     pub destination: FullAddress,
+    pub ips: IpAddresses,
     pub data_offset: usize,
     pub data_length: usize,
+    pub hop: u8,
     pub checksum: NetworkU16,
 }
 
 impl UdpPacket {
-    pub fn parse_frame(frame: &super::Frame) -> Result<Option<Self>, super::FrameError> {
-        use std::net::IpAddr;
-
+    pub fn parse_packet(packet: &super::Packet) -> Result<Option<Self>, super::PacketError> {
         let mut offset = 0;
-        let ether: &EthHdr = frame.item_at_offset(offset)?;
+        let ether: &EthHdr = packet.item_at_offset(offset)?;
         offset += EthHdr::LEN;
 
-        let source;
-        let destination;
-
-        let udp: &UdpHdr = match ether.ether_type {
+        let (udp, ips, hop): (&UdpHdr, IpAddresses, u8) = match ether.ether_type {
             EtherType::Ipv4 => {
-                let ipv4: &Ipv4Hdr = frame.item_at_offset(offset)?;
+                let ipv4: &Ipv4Hdr = packet.item_at_offset(offset)?;
                 offset += Ipv4Hdr::LEN;
 
                 if ipv4.proto == IpProto::Udp {
-                    source = IpAddr::V4(ipv4.source.host().into());
-                    destination = IpAddr::V4(ipv4.destination.host().into());
-                    frame.item_at_offset(offset)?
+                    (
+                        packet.item_at_offset(offset)?,
+                        IpAddresses::V4 {
+                            source: ipv4.source.host().into(),
+                            destination: ipv4.destination.host().into(),
+                        },
+                        ipv4.time_to_live,
+                    )
                 } else {
                     return Ok(None);
                 }
             }
             EtherType::Ipv6 => {
-                let ipv6: &Ipv6Hdr = frame.item_at_offset(offset)?;
+                let ipv6: &Ipv6Hdr = packet.item_at_offset(offset)?;
                 offset += Ipv6Hdr::LEN;
 
                 if ipv6.next_header == IpProto::Udp {
-                    source = IpAddr::V6(ipv6.source.into());
-                    destination = IpAddr::V6(ipv6.destination.into());
-                    frame.item_at_offset(offset)?
+                    (
+                        packet.item_at_offset(offset)?,
+                        IpAddresses::V6 {
+                            source: ipv6.source.into(),
+                            destination: ipv6.destination.into(),
+                        },
+                        ipv6.hop_limit,
+                    )
                 } else {
                     return Ok(None);
                 }
@@ -549,25 +633,90 @@ impl UdpPacket {
 
         let source = FullAddress {
             mac: ether.source,
-            ip: source,
-            port: udp.source.host(),
+            port: udp.source,
         };
         let destination = FullAddress {
             mac: ether.destination,
-            ip: destination,
-            port: udp.dest.host(),
+            port: udp.dest,
         };
 
         let data_length = udp.len.host() as usize - UdpHdr::LEN;
-        assert_eq!(frame.len() - offset, data_length);
 
         Ok(Some(Self {
             source,
             destination,
+            ips,
             data_offset: offset,
             data_length,
+            hop,
             checksum: NetworkU16(udp.check),
         }))
+    }
+
+    #[inline]
+    pub fn is_ipv4(&self) -> bool {
+        matches!(&self.ips, IpAddresses::V4 { .. })
+    }
+
+    #[inline]
+    pub fn header_length(&self) -> usize {
+        EthHdr::LEN
+            + if self.is_ipv4() {
+                Ipv4Hdr::LEN
+            } else {
+                Ipv6Hdr::LEN
+            }
+            + UdpHdr::LEN
+    }
+
+    /// Sets the packet's head to the IP and UDP headers, the packet must have
+    /// enough space
+    pub fn set_packet_headers(&self, packet: &mut super::Packet) -> Result<(), super::PacketError> {
+        let mut offset = 0;
+        let ether: &mut EthHdr = packet.item_at_offset_mut(offset)?;
+        offset += EthHdr::LEN;
+
+        ether.destination = self.destination.mac;
+        ether.source = self.source.mac;
+
+        match self.ips {
+            IpAddresses::V4 {
+                source,
+                destination,
+            } => {
+                ether.ether_type = EtherType::Ipv4;
+
+                let ip: &mut Ipv4Hdr = packet.item_at_offset_mut(offset)?;
+                offset += Ipv4Hdr::LEN;
+
+                ip.reset(self.hop, IpProto::Udp);
+                ip.source = source.to_bits().into();
+                ip.destination = destination.to_bits().into();
+                ip.total_length = ((Ipv4Hdr::LEN + UdpHdr::LEN + self.data_length) as u16).into();
+            }
+            IpAddresses::V6 {
+                source,
+                destination,
+            } => {
+                ether.ether_type = EtherType::Ipv6;
+
+                let ip: &mut Ipv6Hdr = packet.item_at_offset_mut(offset)?;
+                offset += Ipv6Hdr::LEN;
+
+                ip.reset(self.hop, IpProto::Udp);
+                ip.source = source.octets();
+                ip.destination = destination.octets();
+                ip.payload_length = ((UdpHdr::LEN + self.data_length) as u16).into();
+            }
+        }
+
+        let udp: &mut UdpHdr = packet.item_at_offset_mut(offset)?;
+        udp.source = self.source.port;
+        udp.dest = self.destination.port;
+        udp.len = ((self.data_length + UdpHdr::LEN) as u16).into();
+        udp.check = self.checksum.0;
+
+        Ok(())
     }
 }
 
@@ -581,5 +730,9 @@ mod test {
         assert_eq!(Ipv4Hdr::LEN, 20);
         assert_eq!(Ipv6Hdr::LEN, 40);
         assert_eq!(UdpHdr::LEN, 8);
+
+        let mut ip = Ipv4Hdr::zeroed();
+        ip.reset(56, IpProto::Tcp);
+        assert_eq!(20, ip.internet_header_length());
     }
 }

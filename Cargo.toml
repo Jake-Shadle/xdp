@@ -35,7 +35,7 @@ members = [
 
 [workspace.dependencies]
 libc = "0.2"
-test-utils = { path = "./crates/test-utils" }
-tokio = { version = "1.42.0", default-features = false, features = ["macros", "rt-multi-thread"] }
-xdp = { path = "." }
-etherparse = "0.16"
+test-utils = { version = "0.1.0", path = "./crates/test-utils" }
+tokio = { version = "1.43.0", default-features = false, features = ["macros", "rt-multi-thread"] }
+xdp = { version = "0.0.1", path = "." }
+etherparse = "0.17"

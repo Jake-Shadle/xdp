@@ -1,8 +1,8 @@
 use super::bindings::*;
 use crate::Umem;
 
-/// The ring used to enqueue buffers for the kernel to fill in with frames received
-/// from a NIC
+/// The ring used to enqueue buffers for the kernel to fill in with packets
+/// received from a NIC
 pub struct FillRing {
     ring: super::XskProducer<u64>,
     _mmap: memmap2::MmapMut,
@@ -31,7 +31,7 @@ impl FillRing {
         })
     }
 
-    /// Enqueues up to `num_frames` to be received and filled by the kernel
+    /// Enqueues up to `num_packets` to be received and filled by the kernel
     ///
     /// # Safety
     ///
@@ -39,12 +39,12 @@ impl FillRing {
     ///
     /// # Returns
     ///
-    /// The number of frames that were actually enqueued. This number can be
-    /// lower than the requested `num_frames` if the Umem didn't have enough
+    /// The number of packets that were actually enqueued. This number can be
+    /// lower than the requested `num_packets` if the [`Umem`] didn't have enough
     /// open slots, or the rx ring had insufficient capacity
-    pub unsafe fn enqueue(&mut self, umem: &mut Umem, num_frames: usize) -> usize {
+    pub unsafe fn enqueue(&mut self, umem: &mut Umem, num_packets: usize) -> usize {
         let mut popper = umem.popper();
-        let requested = std::cmp::min(popper.len(), num_frames);
+        let requested = std::cmp::min(popper.len(), num_packets);
         if requested == 0 {
             return 0;
         }
@@ -65,7 +65,7 @@ impl FillRing {
 }
 
 /// The wakable version of [`FillRing`], which requires that we notify the kernel
-/// when there are new buffers available to receive frames
+/// when there are new buffers available to receive packets
 pub struct WakableFillRing {
     inner: FillRing,
     socket: std::os::fd::RawFd,
@@ -93,10 +93,10 @@ impl WakableFillRing {
     pub unsafe fn enqueue(
         &mut self,
         umem: &mut Umem,
-        num_frames: usize,
+        num_packets: usize,
         wakeup: bool,
     ) -> std::io::Result<usize> {
-        let queued = self.inner.enqueue(umem, num_frames);
+        let queued = self.inner.enqueue(umem, num_packets);
 
         if queued > 0 && wakeup {
             // SAFETY: This is safe, even if the socket descriptor is invalid.

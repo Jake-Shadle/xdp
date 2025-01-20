@@ -186,7 +186,7 @@ impl XdpSocketBuilder {
             addr: u64,
             /// Length of the packet mmap in bytes
             len: u64,
-            /// Size of each individual chunk/frame/packet
+            /// Size of each individual chunk/packet/packet
             chunk_size: u32,
             /// Size of the headroom the packet is offset from the beginning.
             /// Note this does not include the headroom that is already reserved by the kernel
@@ -344,34 +344,44 @@ pub struct XdpSocket {
     sock: std::os::fd::OwnedFd,
 }
 
-use std::time::Duration;
+#[derive(Copy, Clone)]
+pub struct PollTimeout(i32);
+
+impl PollTimeout {
+    pub const fn new(duration: Option<std::time::Duration>) -> Self {
+        let ms = if let Some(dur) = duration {
+            let ms = dur.as_millis();
+            if ms > i32::MAX as _ {
+                panic!("timeout cannot exceed i32::MAX milliseconds");
+            }
+
+            ms as i32
+        } else {
+            -1
+        };
+
+        Self(ms)
+    }
+}
 
 impl XdpSocket {
     #[inline]
-    pub fn poll(&self, timeout: Option<Duration>) -> std::io::Result<bool> {
+    pub fn poll(&self, timeout: PollTimeout) -> std::io::Result<bool> {
         self.poll_inner(libc::POLLIN | libc::POLLOUT, timeout)
     }
 
     #[inline]
-    pub fn poll_read(&self, timeout: Option<Duration>) -> std::io::Result<bool> {
+    pub fn poll_read(&self, timeout: PollTimeout) -> std::io::Result<bool> {
         self.poll_inner(libc::POLLIN, timeout)
     }
 
     #[inline]
-    pub fn poll_write(&self, timeout: Option<Duration>) -> std::io::Result<bool> {
+    pub fn poll_write(&self, timeout: PollTimeout) -> std::io::Result<bool> {
         self.poll_inner(libc::POLLOUT, timeout)
     }
 
     #[inline]
-    pub fn poll_inner(&self, events: i16, timeout: Option<Duration>) -> std::io::Result<bool> {
-        let timeout = timeout.map_or(-1, |d| {
-            let ms = d.as_millis();
-            if ms > i32::MAX as _ {
-                0
-            } else {
-                ms as _
-            }
-        });
+    pub fn poll_inner(&self, events: i16, timeout: PollTimeout) -> std::io::Result<bool> {
         let ret = unsafe {
             libc::poll(
                 &mut libc::pollfd {
@@ -380,7 +390,7 @@ impl XdpSocket {
                     revents: 0,
                 },
                 1,
-                timeout,
+                timeout.0,
             )
         };
 

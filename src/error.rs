@@ -1,9 +1,9 @@
-pub use crate::{frame::FrameError, socket::SocketError};
+pub use crate::{packet::PacketError, socket::SocketError};
 use std::fmt;
 
 pub enum Error {
     Cfg(ConfigError),
-    Frame(FrameError),
+    Packet(PacketError),
     Socket(SocketError),
 }
 
@@ -11,7 +11,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Cfg(err) => err.source(),
-            Self::Frame(err) => err.source(),
+            Self::Packet(err) => err.source(),
             Self::Socket(err) => err.source(),
         }
     }
@@ -23,8 +23,8 @@ impl fmt::Debug for Error {
             Self::Cfg(cerr) => {
                 write!(f, "configuration error: {cerr:?}")
             }
-            Self::Frame(ferr) => {
-                write!(f, "frame error: {ferr:?}")
+            Self::Packet(ferr) => {
+                write!(f, "packet error: {ferr:?}")
             }
             Self::Socket(serr) => {
                 write!(f, "socket error: {serr:?}")
@@ -39,8 +39,8 @@ impl fmt::Display for Error {
             Self::Cfg(cerr) => {
                 write!(f, "configuration error: {cerr}")
             }
-            Self::Frame(ferr) => {
-                write!(f, "frame error: {ferr}")
+            Self::Packet(ferr) => {
+                write!(f, "packet error: {ferr}")
             }
             Self::Socket(serr) => {
                 write!(f, "socket error: {serr}")
@@ -61,9 +61,9 @@ impl From<SocketError> for Error {
     }
 }
 
-impl From<FrameError> for Error {
-    fn from(value: FrameError) -> Self {
-        Self::Frame(value)
+impl From<PacketError> for Error {
+    fn from(value: PacketError) -> Self {
+        Self::Packet(value)
     }
 }
 
