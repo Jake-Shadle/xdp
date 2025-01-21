@@ -730,6 +730,12 @@ impl PartialEq<u32> for NicIndex {
     }
 }
 
+impl PartialEq<NicIndex> for NicIndex {
+    fn eq(&self, other: &NicIndex) -> bool {
+        self.0 == other.0
+    }
+}
+
 // #[cfg(test)]
 // mod test {
 //     #[test]
