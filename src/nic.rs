@@ -546,7 +546,12 @@ impl NicIndex {
 
                 let id = socket
                     .resolve_genl_family("netdev")
-                    .expect("failed to resolve");
+                    .map_err(|err| match err {
+                        neli::err::NlError::Ser(ser) => ser,
+                        neli::err::NlError::Msg(msg) => neli::err::SerError::Msg(msg),
+                        neli::err::NlError::Wrapped(w) => neli::err::SerError::Wrapped(w),
+                        other => neli::err::SerError::Msg(other.to_string()),
+                    })?;
 
                 #[derive(Copy, Clone, Debug, PartialEq)]
                 #[repr(u16)]
