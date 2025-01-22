@@ -54,7 +54,7 @@ fn generate(packet: &mut xdp::Packet, len: usize, ipv4: bool) -> u16 {
 
 #[inline]
 fn csum_xdp(packet: &mut xdp::Packet) -> u16 {
-    xdp::packet::csum::recalc_udp(packet).unwrap()
+    packet.calc_udp_checksum().unwrap()
 }
 
 fn csum_ic(packet: &mut xdp::Packet) -> u16 {
@@ -181,13 +181,13 @@ fn bench_csum(c: &mut Criterion) {
         assert_eq!(csum_ep(&mut packet), expected);
 
         group.bench_function(BenchmarkId::new("ipv4 xdp", i), |b| {
-            b.iter(|| csum_xdp(black_box(&mut packet)))
+            b.iter(|| csum_xdp(black_box(&mut packet)));
         });
         group.bench_function(BenchmarkId::new("ipv4 internet-checksum", i), |b| {
             b.iter(|| csum_ic(black_box(&mut packet)));
         });
         group.bench_function(BenchmarkId::new("ipv4 etherparse", i), |b| {
-            b.iter(|| csum_ep(black_box(&mut packet)))
+            b.iter(|| csum_ep(black_box(&mut packet)));
         });
 
         let mut packet = xdp::Packet::testing_new(&mut buf);
@@ -199,13 +199,13 @@ fn bench_csum(c: &mut Criterion) {
         assert_eq!(csum_ep(&mut packet), expected);
 
         group.bench_function(BenchmarkId::new("ipv6 xdp", i), |b| {
-            b.iter(|| csum_xdp(black_box(&mut packet)))
+            b.iter(|| csum_xdp(black_box(&mut packet)));
         });
         group.bench_function(BenchmarkId::new("ipv6 internet-checksum", i), |b| {
             b.iter(|| csum_ic(black_box(&mut packet)));
         });
         group.bench_function(BenchmarkId::new("ipv6 etherparse", i), |b| {
-            b.iter(|| csum_ep(black_box(&mut packet)))
+            b.iter(|| csum_ep(black_box(&mut packet)));
         });
     }
     group.finish();

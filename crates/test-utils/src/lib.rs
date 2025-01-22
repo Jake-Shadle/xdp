@@ -5,7 +5,7 @@ pub use etherparse;
 
 static LOGGER: std::sync::Once = std::sync::Once::new();
 
-/// Needs ./build_ebpf.sh to be run
+/// Needs `./build_ebpf.sh` to be run
 const PROGRAM: &[u8] = include_bytes!("../../../target/bpfel-unknown-none/release/socket-router");
 const DUMMY: &[u8] = include_bytes!("../../../target/bpfel-unknown-none/release/dummy");
 

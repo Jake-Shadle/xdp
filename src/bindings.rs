@@ -116,18 +116,21 @@ pub mod rings {
         Completion = 0x180000000,
     }
 
-    /// The
+    /// The mapping offsets for a single ring
     ///
     /// [Source](https://github.com/torvalds/linux/blob/7af08b57bcb9ebf78675c50069c54125c0a8b795/include/uapi/linux/if_xdp.h#L59-L64)
     #[repr(C)]
     pub struct xdp_ring_offset {
+        /// The offset in the mmap where the producer u32 atomic resides
         pub producer: u64,
+        /// The offset in the mmap where the consumer u32 atomic resides
         pub consumer: u64,
+        /// The offset in the mmap where the ring will actually store data
         pub desc: u64,
         pub flags: u64,
     }
 
-    ///
+    /// The ring offsets for each of the 4 rings
     ///
     /// [Source](https://github.com/torvalds/linux/blob/7af08b57bcb9ebf78675c50069c54125c0a8b795/include/uapi/linux/if_xdp.h#L66-L71)
     #[repr(C)]

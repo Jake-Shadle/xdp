@@ -1,3 +1,5 @@
+/// Folds a running checksum calculation to a 16-bit value appropriate for use
+/// in a checksum field
 #[inline]
 pub fn fold_checksum(mut csum: u32) -> u16 {
     //csum += 0xffff;
@@ -33,6 +35,9 @@ pub fn sub(a: u32, b: u32) -> u32 {
 }
 
 /// Equivalent of [`bpf_csum_diff`](https://docs.ebpf.io/linux/helper-function/bpf_csum_diff/)
+///
+/// This method allows adding and/or removing bytes in a running checksum calculation
+/// so that the entirety of the checksum doesn't need to be recalculated
 #[inline]
 pub fn diff(from: &[u8], to: &[u8], seed: u32) -> u16 {
     let ret = if !from.is_empty() && !to.is_empty() {
@@ -54,11 +59,15 @@ pub fn diff(from: &[u8], to: &[u8], seed: u32) -> u16 {
     to_u16(ret)
 }
 
+/// Reduces the intermediate 64-bit sum to 32-bits that can be fed into
+/// further calculations
 #[inline]
 fn finalize(sum: u64) -> u32 {
     (sum.overflowing_add(sum.rotate_right(32)).0 >> 32) as u32
 }
 
+/// Calculates the internet checksum for the specified block of bytes, appending
+/// it to the previous checksum calculation
 pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
     // TODO: https://fenrus75.github.io/csum_partial/ has some more potential
     // wins, but that can be done later
@@ -197,7 +206,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
     finalize(sum)
 }
 
-use super::net_types as nt;
+use crate::packet::net_types as nt;
 
 #[derive(Debug)]
 pub enum UdpCalcError {
@@ -240,116 +249,121 @@ impl From<super::PacketError> for UdpCalcError {
     }
 }
 
-/// Recalculates the UDP checksum for the specified packet
-pub fn recalc_udp(packet: &mut super::Packet) -> Result<u16, UdpCalcError> {
-    use nt::*;
+impl super::Packet {
+    /// Performs a full calculation of the UDP header checksum.
+    ///
+    /// This method is here for convenience, but it might be better in some
+    /// scenarios to use a running checksum calculation like [`partial`] or [`diff`]
+    pub fn calc_udp_checksum(&mut self) -> Result<u16, UdpCalcError> {
+        use nt::*;
 
-    let mut offset = 0;
-    let eth = packet.item_at_offset::<EthHdr>(offset)?;
-    offset += EthHdr::LEN;
+        let mut offset = 0;
+        let eth = self.item_at_offset::<EthHdr>(offset)?;
+        offset += EthHdr::LEN;
 
-    let pseudo_seed = match eth.ether_type {
-        EtherType::Ipv4 => {
-            let ipv4 = packet.item_at_offset::<Ipv4Hdr>(offset)?;
-            debug_assert_eq!(
-                ipv4.internet_header_length(),
-                Ipv4Hdr::LEN as u8,
-                "ipv4 options are not supported"
-            );
-            offset += Ipv4Hdr::LEN;
-
-            if ipv4.proto != IpProto::Udp {
-                return Err(UdpCalcError::NotUdp(ipv4.proto));
-            }
-
-            let udp_hdr = packet.item_at_offset::<UdpHdr>(offset)?;
-
-            // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
-            unsafe {
-                let mut sum = (udp_hdr.len.host() as u32).to_be() + (IpProto::Udp as u32).to_be();
-
-                std::arch::asm!(
-                    "addl {saddr:e}, {sum:e}",
-                    "adcl {daddr:e}, {sum:e}",
-                    "adcl $0, {sum:e}",
-                    saddr = in(reg) ipv4.source.0,
-                    daddr = in(reg) ipv4.destination.0,
-                    sum = inout(reg) sum,
-                    options(att_syntax)
+        let pseudo_seed = match eth.ether_type {
+            EtherType::Ipv4 => {
+                let ipv4 = self.item_at_offset::<Ipv4Hdr>(offset)?;
+                debug_assert_eq!(
+                    ipv4.internet_header_length(),
+                    Ipv4Hdr::LEN as u8,
+                    "ipv4 options are not supported"
                 );
+                offset += Ipv4Hdr::LEN;
 
-                sum
+                if ipv4.proto != IpProto::Udp {
+                    return Err(UdpCalcError::NotUdp(ipv4.proto));
+                }
+
+                let udp_hdr = self.item_at_offset::<UdpHdr>(offset)?;
+
+                // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
+                unsafe {
+                    let mut sum =
+                        (udp_hdr.len.host() as u32).to_be() + (IpProto::Udp as u32).to_be();
+
+                    std::arch::asm!(
+                        "addl {saddr:e}, {sum:e}",
+                        "adcl {daddr:e}, {sum:e}",
+                        "adcl $0, {sum:e}",
+                        saddr = in(reg) ipv4.source.0,
+                        daddr = in(reg) ipv4.destination.0,
+                        sum = inout(reg) sum,
+                        options(att_syntax)
+                    );
+
+                    sum
+                }
             }
-        }
-        EtherType::Ipv6 => {
-            let ipv6 = packet.item_at_offset::<Ipv6Hdr>(offset)?;
-            offset += Ipv6Hdr::LEN;
+            EtherType::Ipv6 => {
+                let ipv6 = self.item_at_offset::<Ipv6Hdr>(offset)?;
+                offset += Ipv6Hdr::LEN;
 
-            if ipv6.next_header != IpProto::Udp {
-                return Err(UdpCalcError::NotUdp(ipv6.next_header));
+                if ipv6.next_header != IpProto::Udp {
+                    return Err(UdpCalcError::NotUdp(ipv6.next_header));
+                }
+
+                let udp_hdr = self.item_at_offset::<UdpHdr>(offset)?;
+
+                // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
+                unsafe {
+                    let mut sum =
+                        (udp_hdr.len.host() as u64).to_be() + (IpProto::Udp as u64).to_be();
+
+                    std::arch::asm!(
+                        "addq 0*8({saddr}), {sum}",
+                        "adcq 1*8({saddr}), {sum}",
+                        "adcq 0*8({daddr}), {sum}",
+                        "adcq 1*8({daddr}), {sum}",
+                        "adcq $0, {sum}",
+                        saddr = in(reg) ipv6.source.as_ptr(),
+                        daddr = in(reg) ipv6.destination.as_ptr(),
+                        sum = inout(reg) sum,
+                        options(att_syntax)
+                    );
+
+                    finalize(sum)
+                }
             }
+            other => return Err(UdpCalcError::NotIp(other)),
+        };
 
-            let udp_hdr = packet.item_at_offset::<UdpHdr>(offset)?;
+        let check_offset = offset + std::mem::offset_of!(UdpHdr, check);
 
-            // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
-            unsafe {
-                let mut sum = (udp_hdr.len.host() as u64).to_be() + (IpProto::Udp as u64).to_be();
+        let checksum = if self.can_offload_checksum() {
+            let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
+            let csum = fold_checksum(pseudo_seed);
+            udp_hdr.check = csum;
 
-                std::arch::asm!(
-                    "addq 0*8({saddr}), {sum}",
-                    "adcq 1*8({saddr}), {sum}",
-                    "adcq 0*8({daddr}), {sum}",
-                    "adcq 1*8({daddr}), {sum}",
-                    "adcq $0, {sum}",
-                    saddr = in(reg) ipv6.source.as_ptr(),
-                    daddr = in(reg) ipv6.destination.as_ptr(),
-                    sum = inout(reg) sum,
-                    options(att_syntax)
-                );
+            self.set_tx_metadata(
+                crate::packet::CsumOffload::Request(crate::bindings::xsk_tx_request {
+                    csum_start: offset as u16,
+                    csum_offset: std::mem::offset_of!(UdpHdr, check) as u16,
+                }),
+                false,
+            )?;
 
-                finalize(sum)
-            }
-        }
-        other => return Err(UdpCalcError::NotIp(other)),
-    };
+            csum
+        } else {
+            let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
+            udp_hdr.check = 0;
 
-    let check_offset = offset + std::mem::offset_of!(UdpHdr, check);
+            let data_payload = self.slice_at_offset(offset, self.len() - offset)?;
+            fold_checksum(partial(data_payload, pseudo_seed))
+        };
 
-    let checksum = if packet.can_offload_checksum() {
-        let udp_hdr = packet.item_at_offset_mut::<UdpHdr>(offset)?;
-        let csum = fold_checksum(pseudo_seed);
-        udp_hdr.check = csum;
+        self.slice_at_offset_mut(check_offset, 2)?
+            .copy_from_slice(&checksum.to_ne_bytes());
 
-        packet.set_tx_metadata(
-            crate::packet::CsumOffload::Request(crate::bindings::xsk_tx_request {
-                csum_start: offset as u16,
-                csum_offset: std::mem::offset_of!(UdpHdr, check) as u16,
-            }),
-            false,
-        )?;
-
-        csum
-    } else {
-        let udp_hdr = packet.item_at_offset_mut::<UdpHdr>(offset)?;
-        udp_hdr.check = 0;
-
-        let data_payload = packet.slice_at_offset(offset, packet.len() - offset)?;
-        fold_checksum(partial(data_payload, pseudo_seed))
-    };
-
-    packet
-        .slice_at_offset_mut(check_offset, 2)?
-        .copy_from_slice(&checksum.to_ne_bytes());
-
-    Ok(checksum)
+        Ok(checksum)
+    }
 }
 
 impl super::net_types::UdpPacket {
     /// Given an already calculated checksum for the data payload, or 0 if using
-    /// tx checksum offload, checksums the pseudo and udp header
+    /// tx checksum offload, checksums the pseudo IP and UDP header
     #[inline]
     pub fn calc_checksum(&mut self, length: usize, data_checksum: u32) {
-        use crate::packet::net_types as nt;
         self.data_length = length;
 
         let mut sum = data_checksum as u64;
@@ -372,8 +386,8 @@ impl super::net_types::UdpPacket {
                         saddr = in(reg) (source.to_bits() as u64).to_be(),
                         daddr = in(reg) (destination.to_bits() as u64).to_be(),
                         udp = in(reg) &nt::UdpHdr {
-                            source: self.source.port,
-                            dest: self.destination.port,
+                            source: self.src_port,
+                            dest: self.dst_port,
                             len: (data_len as u16).into(),
                             check: 0,
                         },
@@ -403,8 +417,8 @@ impl super::net_types::UdpPacket {
                         saddr = in(reg) source.as_ptr(),
                         daddr = in(reg) destination.as_ptr(),
                         udp = in(reg) &nt::UdpHdr {
-                            source: self.source.port,
-                            dest: self.destination.port,
+                            source: self.src_port,
+                            dest: self.dst_port,
                             len: (data_len as u16).into(),
                             check: 0,
                         },

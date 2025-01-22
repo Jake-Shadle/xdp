@@ -38,18 +38,30 @@ impl TryFrom<FrameSize> for u32 {
     }
 }
 
+/// A memory region that can be shared between kernel and userspace where packet
+/// data can be written to (recv) and read from (send)
 pub struct Umem {
+    /// The actual memory mapping
     pub(crate) mmap: memmap2::MmapMut,
-    /// Frames available to be written to by the kernel or userspace
+    /// Addresses available to be written to by the kernel or userspace
     available: VecDeque<u64>,
+    /// The size of each individual packet within the mapping
     pub(crate) frame_size: usize,
+    /// Masked used to determine the true start address of a packet regardless
+    /// of the address used when freeing the packet back to this Umem
     frame_mask: u64,
+    /// The headroom configured for the Umem, a number of bytes (after the kernel
+    /// reserved [`XDP_PACKET_HEADROOM`]) where the kernel will not place packet
+    /// data when receiving, which allows the packet to grow downward when eg.
+    /// changing from IPv4 -> IPv6 without needing to copying data upwards
     pub(crate) head_room: usize,
+    /// Bit hacky, but is just used during ring creation to set flags
     pub(crate) tx_metadata: bool,
     //pub(crate) frame_count: usize,
 }
 
 impl Umem {
+    /// Attempts to build a [`Self`] by mapping a memory region
     pub fn map(cfg: UmemCfg) -> std::io::Result<Self> {
         let mmap = memmap2::MmapOptions::new()
             .len(cfg.frame_count as usize * cfg.frame_size as usize)
@@ -66,7 +78,6 @@ impl Umem {
             frame_mask: !(cfg.frame_size as u64 - 1),
             head_room: cfg.head_room as _,
             tx_metadata: cfg.tx_metadata,
-            //frame_count: cfg.frame_count as _,
         })
     }
 
@@ -104,7 +115,7 @@ impl Umem {
     ///
     /// # Safety
     ///
-    /// The [`Frame`] returned by this function is pointing to memory owned by
+    /// The [`Packet`] returned by this function is pointing to memory owned by
     /// this [`Umem`], it must not outlive this [`Umem`]
     #[inline]
     pub unsafe fn alloc(&mut self) -> Option<Packet> {
@@ -137,6 +148,8 @@ impl Umem {
         self.available.push_front(address & self.frame_mask);
     }
 
+    /// Returns the memory block where the [`Packet`] resides to the available
+    /// pool for future use
     #[inline]
     pub fn free_packet(&mut self, packet: Packet) {
         self.free_addr(unsafe {
@@ -148,14 +161,20 @@ impl Umem {
         });
     }
 
+    /// The equivalent of [`Self::free_addr`], but returns the timestamp the
+    /// NIC recorded the send completed
     #[inline]
     pub(crate) fn free_get_timestamp(&mut self, address: u64) -> u64 {
         let align_offset = address % self.frame_size as u64;
         let timestamp = if align_offset >= std::mem::size_of::<bindings::xsk_tx_metadata>() as u64 {
             unsafe {
-                let tx_meta = &*(self.mmap.as_ptr().byte_offset(
-                    (address - std::mem::size_of::<bindings::xsk_tx_metadata>() as u64) as _,
-                ) as *const bindings::xsk_tx_metadata);
+                let tx_meta = &*(self
+                    .mmap
+                    .as_ptr()
+                    .byte_offset(
+                        (address - std::mem::size_of::<bindings::xsk_tx_metadata>() as u64) as _,
+                    )
+                    .cast::<bindings::xsk_tx_metadata>());
                 tx_meta.offload.completion
             }
         } else {
@@ -224,6 +243,7 @@ impl Default for UmemCfgBuilder {
 }
 
 impl UmemCfgBuilder {
+    /// Attempts build a [`UmemCfg`] that can be used with [`Umem::map`]
     pub fn build(self) -> Result<UmemCfg, Error> {
         let frame_size = self.frame_size.try_into()?;
 

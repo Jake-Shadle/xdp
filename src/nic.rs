@@ -270,9 +270,13 @@ pub struct NetdevCapabilities {
     //pub modes: XdpModes,
     /// The number of hardware queues supported by the NIC
     pub queue_count: u32,
+    /// The XDP features available
     pub xdp_features: XdpFeatures,
+    /// The zero copy features available
     pub zero_copy: XdpZeroCopy,
+    /// The RX metadata features available
     pub rx_metadata: XdpRxMetadata,
+    /// The TX metadata features available
     pub tx_metadata: XdpTxMetadata,
 }
 
@@ -323,7 +327,7 @@ impl NicIndex {
         }
     }
 
-    /// Retrieves the [`std::net::Ipv4Addr] and/or [`std::net::Ipv6Addr`] associated
+    /// Retrieves the [`std::net::Ipv4Addr`] and/or [`std::net::Ipv6Addr`] associated
     /// with this network interface
     pub fn addresses(
         &self,
@@ -681,15 +685,13 @@ impl NicIndex {
                     }
                     if let Some(xdp_attr) = get_attr::<u64>(&attrs, Netdev::XdpFeatures) {
                         xdp_features = xdp_attr;
-                    } else {
-                        continue;
-                    }
 
-                    zero_copy_max_segs =
-                        get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
-                    rx_metadata_features =
-                        get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
-                    xsk_features = get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0);
+                        zero_copy_max_segs =
+                            get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
+                        rx_metadata_features =
+                            get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
+                        xsk_features = get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0);
+                    }
                 }
 
                 Ok(())

@@ -69,6 +69,7 @@ impl RingConfigBuilder {
     }
 }
 
+/// Used to configure the rings created by the kernel in [`crate::socket::XdpSocketBuilder::build_rings`]
 #[derive(Copy, Clone)]
 pub struct RingConfig {
     /// The maximum number of entries in the [`RxRing`] or [`WakableRxRing`]
@@ -81,10 +82,16 @@ pub struct RingConfig {
     pub(crate) completion_count: u32,
 }
 
+/// The set of rings tied to an XDP socket
 pub struct Rings {
+    /// The ring used by userspace to inform the kernel of memory addresses that
+    /// you wish it to fill with packet received on the bound NIC
     pub fill_ring: FillRing,
+    /// The ring used by the kernel to place packets that have finished receiving
     pub rx_ring: Option<RxRing>,
+    /// The ring used by the kernel to inform userspace when packets have finished sending
     pub completion_ring: CompletionRing,
+    /// The ring used by userspace to enqueue packets to be sent on the bound NIC
     pub tx_ring: Option<TxRing>,
 }
 
@@ -131,12 +138,10 @@ fn map_ring<T>(
     let ring = unsafe {
         let map = mmap.as_mut_ptr();
 
-        let producer = AtomicU32::from_ptr(map.byte_offset(offsets.producer as _) as *mut u32);
-        let consumer = AtomicU32::from_ptr(map.byte_offset(offsets.consumer as _) as *mut u32);
-        let ring = std::slice::from_raw_parts_mut(
-            map.byte_offset(offsets.desc as _) as *mut T,
-            count as _,
-        );
+        let producer = AtomicU32::from_ptr(map.byte_offset(offsets.producer as _).cast());
+        let consumer = AtomicU32::from_ptr(map.byte_offset(offsets.consumer as _).cast());
+        let ring =
+            std::slice::from_raw_parts_mut(map.byte_offset(offsets.desc as _).cast(), count as _);
 
         XskRing {
             producer,
@@ -151,6 +156,7 @@ fn map_ring<T>(
     Ok((mmap, ring))
 }
 
+/// Used for fill and tx rings where userspace is the producer
 struct XskProducer<T: 'static>(XskRing<T>);
 
 impl<T> XskProducer<T> {
@@ -216,6 +222,7 @@ impl<T> std::ops::IndexMut<usize> for XskProducer<T> {
     }
 }
 
+/// Used for rx and completion rings where userspace is the consumer
 struct XskConsumer<T: 'static>(XskRing<T>);
 
 impl<T> XskConsumer<T> {

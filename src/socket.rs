@@ -1,23 +1,28 @@
 use crate::{bindings, rings};
 use std::{fmt, io::Error, os::fd::AsRawFd as _};
 
+/// The various errors that can occur when setting up an `AF_XDP` socket
 #[derive(Debug)]
 pub enum SocketError {
+    /// The socket could not be created
     SocketCreation(Error),
+    /// A [`setsockopt`](https://www.man7.org/linux/man-pages/man3/setsockopt.3p.html) call failed
     SetSockOpt { inner: Error, option: OptName },
+    /// A [`getsockopt`](https://www.man7.org/linux/man-pages/man3/getsockopt.3p.html) call failed
     GetSockOpt { inner: Error, option: OptName },
+    /// Failed to map a ring
     RingMap { inner: Error, ring: rings::Ring },
+    /// Failed to bind the socket
     Bind(Error),
 }
 
 impl std::error::Error for SocketError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(match self {
-            Self::SocketCreation(e) => e,
-            Self::SetSockOpt { inner, .. } => inner,
-            Self::GetSockOpt { inner, .. } => inner,
-            Self::RingMap { inner, .. } => inner,
-            Self::Bind(e) => e,
+            Self::SocketCreation(e) | Self::Bind(e) => e,
+            Self::SetSockOpt { inner, .. }
+            | Self::GetSockOpt { inner, .. }
+            | Self::RingMap { inner, .. } => inner,
         })
     }
 }
@@ -28,6 +33,7 @@ impl fmt::Display for SocketError {
     }
 }
 
+/// A building for creating, initializing, and binding an [`XdpSocket`]
 pub struct XdpSocketBuilder {
     sock: std::os::fd::OwnedFd,
 }
@@ -47,7 +53,7 @@ pub enum OptName {
 }
 
 /// The [`libc::sockaddr::sxdp_flags`](https://docs.rs/libc/latest/libc/struct.sockaddr_xdp.html#structfield.sxdp_flags)
-/// to use when binding the AF_XDP socket
+/// to use when binding the `AF_XDP` socket
 #[derive(Copy, Clone)]
 pub struct BindFlags(u16);
 
@@ -87,6 +93,7 @@ impl BindFlags {
 }
 
 impl XdpSocketBuilder {
+    /// Attempts to create an `AF_XDP` socket
     pub fn new() -> Result<Self, SocketError> {
         use std::os::fd::FromRawFd;
 
@@ -102,6 +109,7 @@ impl XdpSocketBuilder {
         })
     }
 
+    /// Builds the rings used to interface between the kernel and userspace
     pub fn build_rings(
         &mut self,
         umem: &crate::Umem,
@@ -110,9 +118,9 @@ impl XdpSocketBuilder {
         let offsets = self.build_rings_inner(umem, &cfg)?;
         let socket = self.sock.as_raw_fd();
 
+        // Setup the rings now that we have our offsets
         let fill_ring = rings::FillRing::new(socket, &cfg, &offsets)?;
 
-        // Setup the rings now that we have our offsets
         let rx_ring = if cfg.rx_count > 0 {
             Some(rings::RxRing::new(socket, &cfg, &offsets)?)
         } else {
@@ -145,9 +153,9 @@ impl XdpSocketBuilder {
         let offsets = self.build_rings_inner(umem, &cfg)?;
         let socket = self.sock.as_raw_fd();
 
+        // Setup the rings now that we have our offsets
         let fill_ring = rings::WakableFillRing::new(socket, &cfg, &offsets)?;
 
-        // Setup the rings now that we have our offsets
         let rx_ring = if cfg.rx_count > 0 {
             Some(rings::RxRing::new(socket, &cfg, &offsets)?)
         } else {
@@ -250,7 +258,7 @@ impl XdpSocketBuilder {
                 socket,
                 libc::SOL_XDP,
                 OptName::XdpMmapOffsets as _,
-                &mut offsets as *mut bindings::rings::xdp_mmap_offsets as *mut _,
+                (&mut offsets as *mut bindings::rings::xdp_mmap_offsets).cast(),
                 &mut size,
             )
         } != 0
@@ -275,6 +283,7 @@ impl XdpSocketBuilder {
         Ok(offsets)
     }
 
+    /// Binds the socket to the specified NIC and queue.
     pub fn bind(
         self,
         interface_index: crate::nic::NicIndex,
@@ -292,7 +301,7 @@ impl XdpSocketBuilder {
         if unsafe {
             libc::bind(
                 self.sock.as_raw_fd(),
-                &xdp_sockaddr as *const libc::sockaddr_xdp as *const _,
+                (&xdp_sockaddr as *const libc::sockaddr_xdp).cast(),
                 std::mem::size_of_val(&xdp_sockaddr) as _,
             )
         } != 0
@@ -319,7 +328,7 @@ impl XdpSocketBuilder {
                 self.sock.as_raw_fd(),
                 level,
                 name as i32,
-                val as *const T as *const _,
+                (val as *const T).cast(),
                 std::mem::size_of_val(val) as _,
             )
         } != 0
@@ -340,6 +349,7 @@ impl std::os::fd::AsRawFd for XdpSocketBuilder {
     }
 }
 
+/// An `AF_XDP` socket that can be polled for I/O operations
 pub struct XdpSocket {
     sock: std::os::fd::OwnedFd,
 }

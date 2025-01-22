@@ -23,20 +23,10 @@ fn parses_ipv4() {
     let udp = net_types::UdpPacket::parse_packet(&packet)
         .unwrap()
         .unwrap();
-    assert_eq!(
-        udp.source,
-        FullAddress {
-            mac: SRC_MAC,
-            port: 9000.into(),
-        }
-    );
-    assert_eq!(
-        udp.destination,
-        FullAddress {
-            mac: DST_MAC,
-            port: 10001.into(),
-        }
-    );
+    assert_eq!(udp.src_mac, SRC_MAC);
+    assert_eq!(udp.src_port, 9000.into());
+    assert_eq!(udp.dst_mac, DST_MAC);
+    assert_eq!(udp.dst_port.host(), 10001);
     assert_eq!(
         udp.ips,
         IpAddresses::V4 {
@@ -71,20 +61,10 @@ fn parses_ipv6() {
     let udp = net_types::UdpPacket::parse_packet(&packet)
         .unwrap()
         .unwrap();
-    assert_eq!(
-        udp.source,
-        FullAddress {
-            mac: SRC_MAC,
-            port: 5353.into(),
-        }
-    );
-    assert_eq!(
-        udp.destination,
-        FullAddress {
-            mac: DST_MAC,
-            port: 1111.into(),
-        }
-    );
+    assert_eq!(udp.src_mac, SRC_MAC);
+    assert_eq!(udp.src_port, 5353.into());
+    assert_eq!(udp.dst_mac, DST_MAC);
+    assert_eq!(udp.dst_port.host(), 1111);
     assert_eq!(
         udp.ips,
         IpAddresses::V6 {
@@ -134,7 +114,7 @@ fn checksums_ipv4_udp() {
     let udp = net_types::UdpPacket::parse_packet(&packet)
         .unwrap()
         .unwrap();
-    assert_eq!(csum::recalc_udp(&mut packet).unwrap(), udp.checksum.0);
+    assert_eq!(packet.calc_udp_checksum().unwrap(), udp.checksum.0);
 }
 
 /// Ensures we generate the correct IPv6 UDP checksum
@@ -156,7 +136,7 @@ fn checksums_ipv6_udp() {
     let udp = net_types::UdpPacket::parse_packet(&packet)
         .unwrap()
         .unwrap();
-    assert_eq!(csum::recalc_udp(&mut packet).unwrap(), udp.checksum.0);
+    assert_eq!(packet.calc_udp_checksum().unwrap(), udp.checksum.0);
 }
 
 #[test]

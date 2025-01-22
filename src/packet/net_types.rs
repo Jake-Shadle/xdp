@@ -75,13 +75,14 @@ impl fmt::Display for MacAddress {
     }
 }
 
+/// An [Ethernet II](https://en.wikipedia.org/wiki/Ethernet_frame#Ethernet_II) header
 #[repr(C)]
 pub struct EthHdr {
     /// The destination MAC address
     pub destination: MacAddress,
     /// The source MAC address
     pub source: MacAddress,
-    /// The EtherType determines the rest of the payload
+    /// The [`EtherType`] determines the rest of the payload
     pub ether_type: EtherType,
 }
 
@@ -107,6 +108,7 @@ pub enum EtherType {
 /// <https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers>
 #[repr(u8)]
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
+#[allow(clippy::doc_markdown)]
 pub enum IpProto {
     /// IPv6 Hop-by-Hop Option
     HopOpt = 0,
@@ -417,7 +419,7 @@ pub struct Ipv4Hdr {
     pub identification: NetworkU16,
     fragment: u16,
     /// Technically this is a time in units of seconds, but in reality this is
-    /// used as a [hop count](https://en.wikipedia.org/wiki/Hop_(networking)
+    /// used as a [hop count](https://en.wikipedia.org/wiki/Hop_(networking))
     /// and should be decremented if resending this packet
     #[doc(alias = "ttl")]
     pub time_to_live: u8,
@@ -519,12 +521,6 @@ pub struct UdpHdr {
 len!(UdpHdr);
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FullAddress {
-    pub mac: MacAddress,
-    pub port: NetworkU16,
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IpAddresses {
     V4 {
         source: Ipv4Addr,
@@ -539,6 +535,7 @@ pub enum IpAddresses {
 use std::net::IpAddr;
 
 impl IpAddresses {
+    /// Gets the source IP address
     #[inline]
     pub fn source(&self) -> IpAddr {
         match self {
@@ -547,6 +544,7 @@ impl IpAddresses {
         }
     }
 
+    /// Gets the destination IP address
     #[inline]
     pub fn destination(&self) -> IpAddr {
         match self {
@@ -555,6 +553,7 @@ impl IpAddresses {
         }
     }
 
+    /// Gets both the source and destination IP addresses
     #[inline]
     pub fn both(&self) -> (IpAddr, IpAddr) {
         match self {
@@ -572,18 +571,39 @@ impl IpAddresses {
     }
 }
 
+/// UDP packet information that can be parsed and/or written from/to a [`super::Packet`]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UdpPacket {
-    pub source: FullAddress,
-    pub destination: FullAddress,
+    /// The IP source and destination information
     pub ips: IpAddresses,
+    /// The source MAC address
+    pub src_mac: MacAddress,
+    /// The destination MAC address
+    pub dst_mac: MacAddress,
+    /// The source UDP port
+    pub src_port: NetworkU16,
+    /// The destination UDP port
+    pub dst_port: NetworkU16,
+    /// The offset to the beginning of the data segment
     pub data_offset: usize,
+    /// The length of the data segment
     pub data_length: usize,
+    /// The IPv4 time-to-live, or IPv6 hop limit
     pub hop: u8,
+    /// The UDP checksum
     pub checksum: NetworkU16,
 }
 
 impl UdpPacket {
+    /// Attempts to parse a [`Self`] from a packet.
+    ///
+    /// Returns `Ok(None)` if the packet doesn't seem corrupted, but doesn't
+    /// actually contain a UDP packet
+    ///
+    /// # Errors
+    ///
+    /// Errors in cases where the data can be partially parsed but the size of the
+    /// packet data indicates a corrupt/invalid packet
     pub fn parse_packet(packet: &super::Packet) -> Result<Option<Self>, super::PacketError> {
         let mut offset = 0;
         let ether: &EthHdr = packet.item_at_offset(offset)?;
@@ -631,20 +651,13 @@ impl UdpPacket {
 
         offset += UdpHdr::LEN;
 
-        let source = FullAddress {
-            mac: ether.source,
-            port: udp.source,
-        };
-        let destination = FullAddress {
-            mac: ether.destination,
-            port: udp.dest,
-        };
-
         let data_length = udp.len.host() as usize - UdpHdr::LEN;
 
         Ok(Some(Self {
-            source,
-            destination,
+            src_mac: ether.source,
+            dst_mac: ether.destination,
+            src_port: udp.source,
+            dst_port: udp.dest,
             ips,
             data_offset: offset,
             data_length,
@@ -653,11 +666,13 @@ impl UdpPacket {
         }))
     }
 
+    /// True if and IPv4 packet
     #[inline]
     pub fn is_ipv4(&self) -> bool {
         matches!(&self.ips, IpAddresses::V4 { .. })
     }
 
+    /// The total length of the header segments before the data segment
     #[inline]
     pub fn header_length(&self) -> usize {
         EthHdr::LEN
@@ -676,8 +691,8 @@ impl UdpPacket {
         let ether: &mut EthHdr = packet.item_at_offset_mut(offset)?;
         offset += EthHdr::LEN;
 
-        ether.destination = self.destination.mac;
-        ether.source = self.source.mac;
+        ether.destination = self.dst_mac;
+        ether.source = self.src_mac;
 
         match self.ips {
             IpAddresses::V4 {
@@ -715,8 +730,8 @@ impl UdpPacket {
         }
 
         let udp: &mut UdpHdr = packet.item_at_offset_mut(offset)?;
-        udp.source = self.source.port;
-        udp.dest = self.destination.port;
+        udp.source = self.src_port;
+        udp.dest = self.dst_port;
         udp.len = ((self.data_length + UdpHdr::LEN) as u16).into();
         udp.check = self.checksum.0;
 
