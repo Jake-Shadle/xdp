@@ -693,6 +693,10 @@ impl UdpPacket {
                 ip.source = source.to_bits().into();
                 ip.destination = destination.to_bits().into();
                 ip.total_length = ((Ipv4Hdr::LEN + UdpHdr::LEN + self.data_length) as u16).into();
+
+                // Technically we only need to the IPv4 checksum and can set the
+                // UDP checksum to 0
+                ip.calc_checksum();
             }
             IpAddresses::V6 {
                 source,
