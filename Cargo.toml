@@ -31,7 +31,7 @@ harness = false
 [workspace]
 members = [
     ".",
-    #"crates/test-utils",
+    "crates/test-utils",
 ]
 
 [workspace.dependencies]

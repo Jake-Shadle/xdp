@@ -1,3 +1,5 @@
+#![cfg(any())]
+
 pub mod netlink;
 pub use aya::programs::XdpFlags;
 
