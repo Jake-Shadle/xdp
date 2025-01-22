@@ -5,6 +5,9 @@ edition = "2021"
 description = "AF_XDP socket support without C dependencies"
 license = "Apache-2.0 OR MIT"
 categories = ["network-programming", "os::linux-apis"]
+homepage = "https://github.com/Jake-Shadle/xdp"
+repository = "https://github.com/Jake-Shadle/xdp"
+documentation = "https://docs.rs/xdp"
 
 [dependencies]
 # While we have some inline bindings, libc provides a bulk of them
