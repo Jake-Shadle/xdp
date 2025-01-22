@@ -4,7 +4,6 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
 use test_utils::{
     netlink::*,
     nt::{Ipv4Hdr, Ipv6Hdr},
-    FullAddress,
 };
 use umem::UmemCfgBuilder;
 use xdp::{socket::*, *};
