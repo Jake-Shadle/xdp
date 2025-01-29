@@ -1,5 +1,5 @@
 use crate::{
-    bindings::{self, xdp_desc},
+    bindings::{self, xdp_desc, InternalXdpFlags},
     error::{ConfigError, Error},
     Packet,
 };
@@ -55,8 +55,7 @@ pub struct Umem {
     /// data when receiving, which allows the packet to grow downward when eg.
     /// changing from IPv4 -> IPv6 without needing to copying data upwards
     pub(crate) head_room: usize,
-    /// Bit hacky, but is just used during ring creation to set flags
-    pub(crate) tx_metadata: bool,
+    pub(crate) options: u32,
     //pub(crate) frame_count: usize,
 }
 
@@ -77,7 +76,15 @@ impl Umem {
             frame_size: cfg.frame_size as _,
             frame_mask: !(cfg.frame_size as u64 - 1),
             head_room: cfg.head_room as _,
-            tx_metadata: cfg.tx_metadata,
+            options: if cfg.tx_metadata {
+                InternalXdpFlags::SupportsChecksumOffload as u32
+            } else {
+                0
+            } | if cfg.software_checksum {
+                InternalXdpFlags::SoftwareOffload as u32
+            } else {
+                0
+            },
         })
     }
 
@@ -105,7 +112,7 @@ impl Umem {
                 head: self.head_room,
                 tail: self.head_room + desc.len as usize,
                 base: self.mmap.as_ptr(),
-                options: desc.options,
+                options: desc.options | self.options,
             }
         }
     }
@@ -134,7 +141,7 @@ impl Umem {
                 head: self.head_room,
                 tail: self.head_room,
                 base: self.mmap.as_ptr(),
-                options: 0,
+                options: self.options,
             })
         }
     }
@@ -229,6 +236,10 @@ pub struct UmemCfgBuilder {
     /// that either request a checksum be calculated by the NIC, and/or that the
     /// transmission timestamp is set before being added to the completion queue
     pub tx_metadata: bool,
+    /// For testing purposes only, enables the `XDP_UMEM_TX_SW_CSUM` flag so
+    /// the checksum is calculated by the driver in software
+    #[cfg(debug_assertions)]
+    pub software_checksum: bool,
 }
 
 impl Default for UmemCfgBuilder {
@@ -238,6 +249,8 @@ impl Default for UmemCfgBuilder {
             head_room: 0,
             frame_count: 8 * 1024,
             tx_metadata: false,
+            #[cfg(debug_assertions)]
+            software_checksum: false,
         }
     }
 }
@@ -259,6 +272,10 @@ impl UmemCfgBuilder {
             frame_count,
             head_room,
             tx_metadata: self.tx_metadata,
+            #[cfg(debug_assertions)]
+            software_checksum: self.software_checksum,
+            #[cfg(not(debug_assertions))]
+            software_checksum: false,
         })
     }
 }
@@ -269,4 +286,5 @@ pub struct UmemCfg {
     frame_count: u32,
     head_room: u32,
     tx_metadata: bool,
+    software_checksum: bool,
 }

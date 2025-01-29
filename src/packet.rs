@@ -423,7 +423,6 @@ impl Packet {
             }
         }
         self.adjust_head(-tx_metadata_diff())?;
-
         self.options |= bindings::XdpFlags::XDP_TX_METADATA as u32;
 
         Ok(())
@@ -441,34 +440,16 @@ use crate::bindings::xdp_desc;
 
 impl From<Packet> for xdp_desc {
     fn from(packet: Packet) -> Self {
-        if (packet.options & bindings::XdpFlags::XDP_TX_METADATA as u32) == 0 {
-            xdp_desc {
-                // SAFETY:
-                addr: unsafe {
-                    packet
-                        .data
-                        .as_ptr()
-                        .byte_offset(packet.head as _)
-                        .offset_from(packet.base) as _
-                },
-                len: (packet.tail - packet.head) as _,
-                options: packet.options & !(bindings::InternalXdpFlags::Mask as u32),
-            }
-        } else {
-            xdp_desc {
-                addr: unsafe {
-                    packet
-                        .data
-                        .as_ptr()
-                        .byte_offset(
-                            (packet.head + std::mem::size_of::<bindings::xsk_tx_metadata>()) as _,
-                        )
-                        .offset_from(packet.base) as _
-                },
-                len: (packet.tail - packet.head - std::mem::size_of::<bindings::xsk_tx_metadata>())
-                    as _,
-                options: packet.options & !(bindings::InternalXdpFlags::Mask as u32),
-            }
+        xdp_desc {
+            addr: unsafe {
+                packet
+                    .data
+                    .as_ptr()
+                    .byte_offset(packet.head as _)
+                    .offset_from(packet.base) as _
+            },
+            len: (packet.tail - packet.head) as _,
+            options: packet.options & !(bindings::InternalXdpFlags::Mask as u32),
         }
     }
 }

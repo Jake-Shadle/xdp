@@ -32,6 +32,8 @@ pub enum XdpFlags {
 #[repr(u32)]
 pub enum InternalXdpFlags {
     SupportsChecksumOffload = 1 << 31,
+    SoftwareOffload = 1 << 30 | 1 << 31,
+    CompletionTimestamp = 1 << 29,
     Mask = 0xf0000000,
 }
 

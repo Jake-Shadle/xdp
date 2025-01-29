@@ -1,4 +1,7 @@
-use crate::{bindings, rings};
+use crate::{
+    bindings::{self, InternalXdpFlags},
+    rings,
+};
 use std::{fmt, io::Error, os::fd::AsRawFd as _};
 
 /// The various errors that can occur when setting up an `AF_XDP` socket
@@ -209,10 +212,14 @@ impl XdpSocketBuilder {
             flags |= libc::XDP_UMEM_UNALIGNED_CHUNK_FLAG;
         }
 
-        if umem.tx_metadata {
+        if umem.options & InternalXdpFlags::SupportsChecksumOffload as u32 != 0 {
             // This value is only available in very recent ~6.11 kernels and was introduced
             // for those who didn't zero initialize xdp_umem_reg
             flags |= libc::XDP_UMEM_TX_METADATA_LEN;
+
+            if umem.options & InternalXdpFlags::SoftwareOffload as u32 != 0 {
+                flags |= libc::XDP_UMEM_TX_SW_CSUM;
+            }
         }
 
         let umem_reg = XdpUmemReg {
@@ -221,7 +228,7 @@ impl XdpSocketBuilder {
             chunk_size: umem.frame_size as _,
             headroom: umem.head_room as _,
             flags,
-            tx_metadata_len: if umem.tx_metadata {
+            tx_metadata_len: if umem.options != 0 {
                 std::mem::size_of::<crate::bindings::xsk_tx_metadata>() as _
             } else {
                 0

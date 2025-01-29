@@ -328,12 +328,10 @@ impl super::Packet {
             other => return Err(UdpCalcError::NotIp(other)),
         };
 
-        let check_offset = offset + std::mem::offset_of!(UdpHdr, check);
-
         let checksum = if self.can_offload_checksum() {
             let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
             let csum = fold_checksum(pseudo_seed);
-            udp_hdr.check = csum;
+            udp_hdr.check = !csum;
 
             self.set_tx_metadata(
                 crate::packet::CsumOffload::Request(crate::bindings::xsk_tx_request {
@@ -349,11 +347,13 @@ impl super::Packet {
             udp_hdr.check = 0;
 
             let data_payload = self.slice_at_offset(offset, self.len() - offset)?;
-            fold_checksum(partial(data_payload, pseudo_seed))
-        };
+            let csum = fold_checksum(partial(data_payload, pseudo_seed));
 
-        self.slice_at_offset_mut(check_offset, 2)?
-            .copy_from_slice(&checksum.to_ne_bytes());
+            let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
+            udp_hdr.check = csum;
+
+            csum
+        };
 
         Ok(checksum)
     }
