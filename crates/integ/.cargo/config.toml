@@ -1,0 +1,4 @@
+# The tests in this crate require sudo privileges to load and attach eBPF, and
+# create veth devices etc
+[target.'cfg(target_os = "linux")']
+runner = "sudo -E"

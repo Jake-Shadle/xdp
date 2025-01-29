@@ -1,5 +1,3 @@
-#![cfg(any())]
-
 pub mod netlink;
 pub use aya::programs::XdpFlags;
 
@@ -40,11 +38,6 @@ impl Bpf {
         LOGGER.call_once(|| {
             env_logger::init();
         });
-
-        if let Err(e) = aya_log::EbpfLogger::init(&mut bpf) {
-            // This can happen if we don't have any log statements
-            eprintln!("failed to initialize eBPF logger: {e}");
-        }
 
         let program: &mut aya::programs::Xdp = bpf
             .program_mut("socket_router")
