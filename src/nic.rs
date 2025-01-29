@@ -294,9 +294,8 @@ impl NicIndex {
     ///
     /// `None` if the interface cannot be found
     #[inline]
-    pub fn lookup_by_name(s: &str) -> std::io::Result<Option<Self>> {
+    pub fn lookup_by_name(ifname: &std::ffi::CStr) -> std::io::Result<Option<Self>> {
         unsafe {
-            let ifname = std::ffi::CString::new(s)?;
             let res = libc::if_nametoindex(ifname.as_ptr());
             if res == 0 {
                 let err = std::io::Error::last_os_error();
@@ -742,14 +741,3 @@ impl PartialEq<NicIndex> for NicIndex {
         self.0 == other.0
     }
 }
-
-// #[cfg(test)]
-// mod test {
-//     #[test]
-//     fn gets_features() {
-//         let nic = super::NicIndex::lookup_by_name("enp117s0f1")
-//             .unwrap()
-//             .unwrap();
-//         dbg!(nic.query_capabilities().unwrap());
-//     }
-// }
