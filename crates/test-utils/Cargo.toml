@@ -6,14 +6,9 @@ publish = false
 license = "Apache-2.0 OR MIT"
 
 [dependencies]
-aya = "0.13.0"
-aya-log = "0.2"
+aya = { version = "0.13.0", default-features = false }
 env_logger = "0.11"
 etherparse.workspace = true
-futures = "0.3"
 libc.workspace = true
-netlink-packet-route = "0.19.0"
 object = "0.36"
-rtnetlink = "0.14.1"
-tokio.workspace = true
 xdp.workspace = true
