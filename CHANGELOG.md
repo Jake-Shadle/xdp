@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Fixed
+- [PR#4](https://github.com/Jake-Shadle/xdp/pull/4) fixed support for [TX checksum offload](https://docs.kernel.org/networking/xsk-tx-metadata.html).
+
 ## [0.1.0] - 2025-01-22
 ### Added
 - [PR#3](https://github.com/Jake-Shadle/xdp/pull/3) added the first pass implementation of the crate with a (mostly) working implementation focused on UDP packets. See the PR for a more detailed description of what is and is not supported.
