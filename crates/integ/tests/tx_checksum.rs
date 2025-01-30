@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use xdp::{
     packet::{net_types as nt, *},
     socket::*,
@@ -43,7 +45,7 @@ fn offloads_tx_checksum() {
         let xfd = xs.raw_fd();
 
         // Ensure there is only 1 queue, otherwise we could drop packets
-        assert_eq!(nic.queue_count().unwrap().1, 1);
+        assert_eq!(nic.queue_count().unwrap().rx_current, 1);
 
         let mut bpf = test_utils::Bpf::load(std::iter::once(xfd));
         let attach = bpf.attach(nic.into(), Default::default());

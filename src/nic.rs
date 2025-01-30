@@ -26,63 +26,41 @@ macro_rules! flag_strings {
     }};
 }
 
-#[derive(Copy, Clone)]
-pub struct NicName {
-    arr: [i8; libc::IF_NAMESIZE],
-    len: usize,
-}
-
-impl NicName {
-    #[inline]
-    pub fn as_str(&self) -> Option<&str> {
-        std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(self.arr.as_ptr().cast(), self.len)
-        })
-        .ok()
-    }
-}
-
-impl fmt::Debug for NicName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(s) = self.as_str() {
-            f.write_str(s)
-        } else {
-            f.write_str("non utf-8")
-        }
-    }
-}
-
-impl fmt::Display for NicName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(s) = self.as_str() {
-            f.write_str(s)
-        } else {
-            f.write_str("non utf-8")
-        }
-    }
-}
-
+/// The XDP modes supported by a device (+driver)
 #[derive(Copy, Clone)]
 pub enum XdpModes {
-    /// Socket buffer mode, doesn't require driver support, but means all XDP
-    /// advantages are lost due to the higher level network stack being involved
-    /// and copies into user space memory
+    /// Socket buffer mode
+    ///
+    /// This doesn't require driver support, but means many XDP advantages are
+    /// lost due to some of the higher level network stack being involved, most
+    /// crucially copies into user space memory over
     Skb = 1 << 1,
-    /// Driver mode, the driver supports XDP allowing bypass of the higher level
-    /// network stack, and potentially zero copies, if the packet is redirected,
+    /// Driver mode
+    ///
+    /// The driver supports XDP, allowing bypass of the higher level network
+    /// stack, and potentially zero copies, if the packet is redirected,
     /// dropped, or retransmitted
     Drv = 1 << 2,
-    /// Hardware mode, allows offload of the eBPF program from the kernel to
-    /// the device itself for maximum performance. Extremely few devices support
-    /// this.
+    /// Hardware mode
+    ///
+    /// Allows offload of the eBPF program from the kernel to the device itself
+    /// for maximum performance. Extremely few devices support this.
     Hardware = 1 << 3,
 }
 
+/// The support for [`XDP_ZEROCOPY`](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-copy-and-xdp-zerocopy-bind-flags)
+///
+/// Zero copy gives the NIC the XDP socket(s) is bound to [direct memory access](https://en.wikipedia.org/wiki/Direct_memory_access)
+/// to the [`crate::Umem`] buffers provided by userspace to receive or send packets
 #[derive(Copy, Clone)]
 #[cfg_attr(test, derive(Debug))]
 pub enum XdpZeroCopy {
+    /// Zero copy is not available for the device
     Unavailable,
+    /// Zero copy is available
     Available,
+    /// Zero copy is available, including [multi-buffer](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#multi-buffer-support).
+    /// This is conceptually similar to [`iovec`](https://www.man7.org/linux/man-pages/man3/iovec.3type.html)
     MultiBuffer(u32),
 }
 
@@ -93,9 +71,6 @@ impl XdpZeroCopy {
         !matches!(self, Self::Unavailable)
     }
 }
-
-#[derive(Copy, Clone)]
-pub struct XdpFeatures(u64);
 
 /// XDP features that can be supported by a driver/NIC
 #[derive(Copy, Clone)]
@@ -124,8 +99,13 @@ pub enum XdpAct {
     /// callback
     NdoXmitSg = 1 << 6,
 
+    /// Mask for the valid bits
     Mask = (1 << 7) - 1,
 }
+
+/// The XDP features that can be supported by a network interface
+#[derive(Copy, Clone)]
+pub struct XdpFeatures(u64);
 
 #[cfg(test)]
 impl fmt::Debug for XdpFeatures {
@@ -173,6 +153,19 @@ impl XdpFeatures {
     }
 }
 
+/// The [RX metadata](https://docs.kernel.org/networking/xdp-rx-metadata.html)
+/// that can be provided by a network interface
+#[repr(u64)]
+pub enum RxMetadataFlags {
+    /// Device is capable of exposing receive HW timestamp via [`bpf_xdp_metadata_rx_timestamp`](https://docs.ebpf.io/linux/kfuncs/bpf_xdp_metadata_rx_timestamp/)
+    Timestamp = 1 << 0,
+    /// Device is capable of exposing receive packet hash via [`bpf_xdp_metadata_rx_hash`](https://docs.ebpf.io/linux/kfuncs/bpf_xdp_metadata_rx_hash/)
+    Hash = 1 << 1,
+    /// Device is capable of exposing receive packet VLAN tag via [`bpf_xdp_metadata_rx_vlan_tag`](https://docs.ebpf.io/linux/kfuncs/bpf_xdp_metadata_rx_vlan_tag/)
+    VlanTag = 1 << 2,
+}
+
+/// The [RX metadata](https://docs.kernel.org/networking/xdp-rx-metadata.html) supported by a NIC
 #[derive(Copy, Clone)]
 pub struct XdpRxMetadata(u64);
 
@@ -192,16 +185,6 @@ impl fmt::Debug for XdpRxMetadata {
             f
         )
     }
-}
-
-#[repr(u64)]
-pub enum RxMetadataFlags {
-    /// Device is capable of exposing receive HW timestamp via [`bpf_xdp_metadata_rx_timestamp`](https://docs.ebpf.io/linux/kfuncs/bpf_xdp_metadata_rx_timestamp/)
-    Timestamp = 1 << 0,
-    /// Device is capable of exposing receive packet hash via [`bpf_xdp_metadata_rx_hash`](https://docs.ebpf.io/linux/kfuncs/bpf_xdp_metadata_rx_hash/)
-    Hash = 1 << 1,
-    /// Device is capable of exposing receive packet VLAN tag via [`bpf_xdp_metadata_rx_vlan_tag`](https://docs.ebpf.io/linux/kfuncs/bpf_xdp_metadata_rx_vlan_tag/)
-    VlanTag = 1 << 2,
 }
 
 impl XdpRxMetadata {
@@ -224,6 +207,17 @@ impl XdpRxMetadata {
     }
 }
 
+/// The [TX metadata](https://docs.kernel.org/networking/xsk-tx-metadata.html)
+/// that can be provided by a network interface
+#[repr(u64)]
+pub enum TxMetadataFlags {
+    /// HW timestamping egress packets is supported by the driver.
+    Timestamp = 1 << 0,
+    /// L4 checksum HW offload is supported by the driver.
+    Checksum = 1 << 1,
+}
+
+/// The [`TxMetdataFlags`] supported by a NIC
 #[derive(Copy, Clone)]
 pub struct XdpTxMetadata(u64);
 
@@ -241,14 +235,6 @@ impl fmt::Debug for XdpTxMetadata {
     }
 }
 
-#[repr(u64)]
-pub enum TxMetadataFlags {
-    /// HW timestamping egress packets is supported by the driver.
-    Timestamp = 1 << 0,
-    /// L4 checksum HW offload is supported by the driver.
-    Checksum = 1 << 1,
-}
-
 impl XdpTxMetadata {
     /// HW timestamping egress packets is supported by the driver.
     #[inline]
@@ -263,6 +249,7 @@ impl XdpTxMetadata {
     }
 }
 
+/// The capabilities available for a network device
 #[cfg_attr(test, derive(Debug))]
 pub struct NetdevCapabilities {
     // The [XDP modes](https://docs.ebpf.io/linux/program-type/BPF_PROG_TYPE_XDP/)
@@ -280,10 +267,31 @@ pub struct NetdevCapabilities {
     pub tx_metadata: XdpTxMetadata,
 }
 
+/// The number of queues available for the interface
+///
+/// Generally speaking, the number of RX and TX queues will be the same, and the
+/// current for each will be the minimum of the number of queues actually supported
+/// by the NIC hardware device, and number of logical CPUs on the machine
 #[derive(Copy, Clone)]
-pub struct NicIndex(pub(crate) u32);
+pub struct Queues {
+    /// The maximum number of RX queues
+    pub rx_max: u32,
+    /// The current number of RX queues
+    pub rx_current: u32,
+    /// The maximum number of TX queues
+    pub tx_max: u32,
+    /// The current number of TX queues
+    pub tx_current: u32,
+}
+
+/// A network interface
+#[derive(Copy, Clone)]
+pub struct NicIndex(pub u32);
 
 impl NicIndex {
+    /// Creates a new [`Self`], but using it will fail various syscalls if the
+    /// index is not actually valid
+    #[inline]
     pub fn new(index: u32) -> Self {
         Self(index)
     }
@@ -399,7 +407,7 @@ impl NicIndex {
     /// # Notes
     ///
     /// This function is a reimplementation of [`xsk_get_max_queues`](https://github.com/xdp-project/xdp-tools/blob/3b199c0c185d4603406e6324ca5783b157c0e492/lib/libxdp/xsk.c#L457-L523)
-    pub fn queue_count(&self) -> std::io::Result<(u32, u32)> {
+    pub fn queue_count(&self) -> std::io::Result<Queues> {
         use std::os::fd::{AsRawFd, FromRawFd};
 
         // SAFETY: syscall
@@ -513,16 +521,12 @@ impl NicIndex {
             }
         }
 
-        Ok((
-            channels
-                .max_rx
-                .max(channels.max_tx)
-                .max(channels.max_combined),
-            channels
-                .rx_count
-                .max(channels.tx_count)
-                .max(channels.combined_count),
-        ))
+        Ok(Queues {
+            rx_max: channels.max_rx.max(channels.max_combined),
+            rx_current: channels.rx_count.max(channels.combined_count),
+            tx_max: channels.max_tx.max(channels.max_combined),
+            tx_current: channels.tx_count.max(channels.combined_count),
+        })
     }
 
     /// Queries the network device's available features
@@ -535,7 +539,7 @@ impl NicIndex {
 
         std::thread::scope(|s| {
             s.spawn(|| {
-                queue_count = self.queue_count().map_or(1, |(_max, count)| count);
+                queue_count = self.queue_count().map_or(1, |queues| queues.rx_current);
             });
 
             s.spawn(|| -> Result<(), neli::err::SerError> {
@@ -739,5 +743,109 @@ impl PartialEq<u32> for NicIndex {
 impl PartialEq<NicIndex> for NicIndex {
     fn eq(&self, other: &NicIndex) -> bool {
         self.0 == other.0
+    }
+}
+
+/// The human-readable name assigned to a network device
+#[derive(Copy, Clone)]
+pub struct NicName {
+    arr: [i8; libc::IF_NAMESIZE],
+    len: usize,
+}
+
+impl NicName {
+    /// Attempts to get the utf-8 interface name, will return `None` in the
+    /// unlikely case the interface name is not utf-8
+    #[inline]
+    pub fn as_str(&self) -> Option<&str> {
+        std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(self.arr.as_ptr().cast(), self.len)
+        })
+        .ok()
+    }
+}
+
+impl fmt::Debug for NicName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(s) = self.as_str() {
+            f.write_str(s)
+        } else {
+            f.write_str("non utf-8")
+        }
+    }
+}
+
+impl fmt::Display for NicName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(s) = self.as_str() {
+            f.write_str(s)
+        } else {
+            f.write_str("non utf-8")
+        }
+    }
+}
+
+/// Iterator over interfaces that are currently `UP`
+///
+/// Note that the same interface can be returned multiple times if it has multiple
+/// routes
+pub struct InterfaceIter {
+    routes: String,
+    pos: usize,
+}
+
+impl InterfaceIter {
+    /// Attempts to create the iterator
+    #[inline]
+    pub fn new() -> std::io::Result<Self> {
+        let routes = std::fs::read_to_string("/proc/net/route")?;
+
+        // Skip the header line
+        let pos = routes.find('\n').ok_or(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "route table didn't have a newline",
+        ))? + 1;
+
+        Ok(Self { routes, pos })
+    }
+}
+
+impl Iterator for InterfaceIter {
+    type Item = NicIndex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let end = self.routes[self.pos..].find('\n')?;
+            let line = &self.routes[self.pos..self.pos + end];
+            self.pos = self.pos + end + 1;
+
+            let mut iter = line.split(char::is_whitespace).filter_map(|s| {
+                let s = s.trim();
+                (!s.is_empty()).then_some(s)
+            });
+
+            let Some(name) = iter.next() else {
+                continue;
+            };
+            let Some(flags) = iter.nth(2).and_then(|f| u16::from_str_radix(f, 16).ok()) else {
+                continue;
+            };
+
+            if flags & (libc::RTF_UP | libc::RTF_GATEWAY) != libc::RTF_UP | libc::RTF_GATEWAY {
+                continue;
+            }
+
+            let mut ifname = [0u8; libc::IF_NAMESIZE];
+            ifname[..name.len()].copy_from_slice(name.as_bytes());
+            ifname[name.len()] = 0;
+
+            let Ok(Some(iface)) = NicIndex::lookup_by_name(unsafe {
+                std::ffi::CStr::from_bytes_with_nul_unchecked(&ifname)
+            }) else {
+                continue;
+            };
+
+            return Some(iface);
+        }
     }
 }
