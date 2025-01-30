@@ -1,1 +1,1 @@
-
+#![allow(missing_docs)]

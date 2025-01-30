@@ -13,6 +13,7 @@ macro_rules! len {
         unsafe impl Pod for $record {}
 
         impl $record {
+            /// The length in bytes of this type
             pub const LEN: usize = size_of::<$record>();
         }
     };
@@ -20,11 +21,13 @@ macro_rules! len {
 
 macro_rules! net_int {
     ($name:ident, $int:ty, $fmt:literal) => {
+        /// Wrapper around a network order integer
         #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(C)]
         pub struct $name(pub $int);
 
         impl $name {
+            /// Gets the type in host order
             #[inline]
             pub fn host(self) -> $int {
                 <$int>::from_be(self.0)
@@ -55,6 +58,7 @@ macro_rules! net_int {
 net_int!(NetworkU16, u16, "{:04x}");
 net_int!(NetworkU32, u32, "{:08x}");
 
+/// A [MAC address](https://en.wikipedia.org/wiki/MAC_address)
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(C)]
 pub struct MacAddress(pub [u8; 6]);
@@ -88,18 +92,16 @@ pub struct EthHdr {
 
 len!(EthHdr);
 
+/// The [payload](https://en.wikipedia.org/wiki/EtherType) for an Ethernet frame
 #[repr(u16)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum EtherType {
-    Loop = 0x0060_u16.to_be(),
     /// The payload is an [`Ipv4Hdr`]
     Ipv4 = 0x0800_u16.to_be(),
+    /// [Address Resolution Protocol](https://en.wikipedia.org/wiki/Address_Resolution_Protocol)
     Arp = 0x0806_u16.to_be(),
     /// The payload is an [`Ipv6Hdr`]
     Ipv6 = 0x86DD_u16.to_be(),
-    FibreChannel = 0x8906_u16.to_be(),
-    Infiniband = 0x8915_u16.to_be(),
-    LoopbackIeee8023 = 0x9000_u16.to_be(),
 }
 
 /// Various transport layer protocols that can be encapsulated in an IPv4 or IPv6
@@ -520,14 +522,21 @@ pub struct UdpHdr {
 
 len!(UdpHdr);
 
+/// The IP (L3) address information for a packet
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IpAddresses {
+    /// IPv4 addresses
     V4 {
+        /// Source IP
         source: Ipv4Addr,
+        /// Destination IP
         destination: Ipv4Addr,
     },
+    /// IPv6 addresses
     V6 {
+        /// Source IP
         source: Ipv6Addr,
+        /// Destination IP
         destination: Ipv6Addr,
     },
 }
@@ -644,7 +653,7 @@ impl UdpPacket {
                     return Ok(None);
                 }
             }
-            _ => {
+            EtherType::Arp => {
                 return Ok(None);
             }
         };

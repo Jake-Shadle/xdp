@@ -1,3 +1,6 @@
+//! Contains the code for initializing and operating the various ring buffers
+//! used in XDP I/O loops
+
 mod fill;
 pub use fill::{FillRing, WakableFillRing};
 mod completion;
@@ -15,6 +18,42 @@ use crate::bindings::rings as bindings;
 pub const XSK_RING_PROD_DEFAULT_NUM_DESCS: u32 = 2048;
 pub const XSK_RING_CONS_DEFAULT_NUM_DESCS: u32 = 2048;
 
+macro_rules! non_zero_and_power_of_2 {
+    ($ctx:expr, $name:ident) => {{
+        let val = $ctx.$name;
+        if val == 0 {
+            return Err($crate::error::ConfigError {
+                name: stringify!($name),
+                kind: $crate::error::ConfigErrorKind::Zero,
+            }
+            .into());
+        } else if !val.is_power_of_two() {
+            return Err($crate::error::ConfigError {
+                name: stringify!($name),
+                kind: $crate::error::ConfigErrorKind::NonPowerOf2,
+            }
+            .into());
+        }
+
+        val
+    }};
+}
+
+macro_rules! zero_or_power_of_2 {
+    ($ctx:expr, $name:ident) => {{
+        let val = $ctx.$name;
+        if val != 0 && !val.is_power_of_two() {
+            return Err($crate::error::ConfigError {
+                name: stringify!($name),
+                kind: $crate::error::ConfigErrorKind::NonPowerOf2,
+            }
+            .into());
+        }
+
+        val
+    }};
+}
+
 #[derive(Debug)]
 pub enum Ring {
     Fill,
@@ -23,6 +62,12 @@ pub enum Ring {
     Tx,
 }
 
+/// Builder for the rings that will be created for an XDP socket.
+///
+/// All fields _must_ be a power of two, and both `fill_count` and `completion_count`
+/// must not be zero.
+///
+/// `rx_count` OR `tx_count` may be zero, but not both
 pub struct RingConfigBuilder {
     /// The maximum number of entries in the [`RxRing`] or [`WakableRxRing`]
     pub rx_count: u32,
@@ -46,6 +91,7 @@ impl Default for RingConfigBuilder {
 }
 
 impl RingConfigBuilder {
+    /// Attempts to build a valid [`RingConfig`]
     pub fn build(self) -> Result<RingConfig, error::Error> {
         if self.rx_count == 0 && self.tx_count == 0 {
             return Err(error::ConfigError {
@@ -55,10 +101,10 @@ impl RingConfigBuilder {
             .into());
         }
 
-        let fill_count = crate::non_zero_and_power_of_2!(self, fill_count);
-        let completion_count = crate::non_zero_and_power_of_2!(self, completion_count);
-        let rx_count = crate::zero_or_power_of_2!(self, rx_count);
-        let tx_count = crate::zero_or_power_of_2!(self, tx_count);
+        let fill_count = non_zero_and_power_of_2!(self, fill_count);
+        let completion_count = non_zero_and_power_of_2!(self, completion_count);
+        let rx_count = zero_or_power_of_2!(self, rx_count);
+        let tx_count = zero_or_power_of_2!(self, tx_count);
 
         Ok(RingConfig {
             rx_count,
@@ -95,10 +141,16 @@ pub struct Rings {
     pub tx_ring: Option<TxRing>,
 }
 
+/// The set of rings tied to an XDP socket
 pub struct WakableRings {
+    /// The ring used by userspace to inform the kernel of memory addresses that
+    /// you wish it to fill with packet received on the bound NIC
     pub fill_ring: WakableFillRing,
+    /// The ring used by the kernel to place packets that have finished receiving
     pub rx_ring: Option<RxRing>,
+    /// The ring used by the kernel to inform userspace when packets have finished sending
     pub completion_ring: CompletionRing,
+    /// The ring used by userspace to enqueue packets to be sent on the bound NIC
     pub tx_ring: Option<WakableTxRing>,
 }
 

@@ -1,3 +1,5 @@
+//! Initialization and polling of an [`AF_XDP`](https://en.wikipedia.org/wiki/Express_Data_Path#AF_XDP) socket
+
 use crate::{
     bindings::{self, InternalXdpFlags},
     rings,
@@ -10,11 +12,26 @@ pub enum SocketError {
     /// The socket could not be created
     SocketCreation(Error),
     /// A [`setsockopt`](https://www.man7.org/linux/man-pages/man3/setsockopt.3p.html) call failed
-    SetSockOpt { inner: Error, option: OptName },
+    SetSockOpt {
+        /// The error
+        inner: Error,
+        /// The socket option we failed to set
+        option: OptName,
+    },
     /// A [`getsockopt`](https://www.man7.org/linux/man-pages/man3/getsockopt.3p.html) call failed
-    GetSockOpt { inner: Error, option: OptName },
+    GetSockOpt {
+        /// The error
+        inner: Error,
+        /// The socket option we failed to get
+        option: OptName,
+    },
     /// Failed to map a ring
-    RingMap { inner: Error, ring: rings::Ring },
+    RingMap {
+        /// The error
+        inner: Error,
+        /// The ring that failed to map
+        ring: rings::Ring,
+    },
     /// Failed to bind the socket
     Bind(Error),
 }
@@ -36,23 +53,31 @@ impl fmt::Display for SocketError {
     }
 }
 
-/// A building for creating, initializing, and binding an [`XdpSocket`]
+/// A builder for creating, initializing, and binding an [`XdpSocket`]
 pub struct XdpSocketBuilder {
     sock: std::os::fd::OwnedFd,
 }
 
+/// The various socket options that are written or read during [`XdpSocketBuilder`]
+/// intialization
 #[derive(Copy, Clone, Debug)]
 #[repr(i32)]
 pub enum OptName {
+    /// Configures the [`Umem`] shared between the kernel and userspace
     UmemRegion = libc::XDP_UMEM_REG,
+    /// Configures the length of the [`rings::FillRing`]
     UmemFillRing = libc::XDP_UMEM_FILL_RING,
+    /// Configures the length of the [`rings::CompletionRing`]
     UmemCompletionRing = libc::XDP_UMEM_COMPLETION_RING,
+    /// Configures the length of the [`rings::RxRing`]
     RxRing = libc::XDP_RX_RING,
+    /// Configures the length of the [`rings::TxRing`]
     TxRing = libc::XDP_TX_RING,
-    PreferBusyPoll = 69, // SO_PREFER_BUSY_POLL
-    BusyPoll = libc::SO_BUSY_POLL,
-    BusyPollBudget = 70, // SO_BUSY_POLL_BUDGET
+    /// Used to retrieve the ring offsets configured by the kernel
     XdpMmapOffsets = libc::XDP_MMAP_OFFSETS,
+    // PreferBusyPoll = 69, // SO_PREFER_BUSY_POLL
+    // BusyPoll = libc::SO_BUSY_POLL,
+    // BusyPollBudget = 70, // SO_BUSY_POLL_BUDGET
 }
 
 /// The [`libc::sockaddr::sxdp_flags`](https://docs.rs/libc/latest/libc/struct.sockaddr_xdp.html#structfield.sxdp_flags)
@@ -148,6 +173,9 @@ impl XdpSocketBuilder {
         ))
     }
 
+    /// Builds a [`rings::WakableFillRing`] and [`rings::WakableTxRing`] that
+    /// will emit syscalls when packets are enqueued to them to inform the kernel
+    /// of the available buffers
     pub fn build_wakable_rings(
         &mut self,
         umem: &crate::Umem,
@@ -321,19 +349,19 @@ impl XdpSocketBuilder {
 
     #[inline]
     fn set_sockopt<T>(&mut self, name: OptName, val: &T) -> Result<(), SocketError> {
-        let level = if matches!(
-            name,
-            OptName::PreferBusyPoll | OptName::BusyPoll | OptName::BusyPollBudget
-        ) {
-            libc::SOL_SOCKET
-        } else {
-            libc::SOL_XDP
-        };
+        // let level = if matches!(
+        //     name,
+        //     OptName::PreferBusyPoll | OptName::BusyPoll | OptName::BusyPollBudget
+        // ) {
+        //     libc::SOL_SOCKET
+        // } else {
+        //     libc::SOL_XDP
+        // };
 
         if unsafe {
             libc::setsockopt(
                 self.sock.as_raw_fd(),
-                level,
+                libc::SOL_XDP,
                 name as i32,
                 (val as *const T).cast(),
                 std::mem::size_of_val(val) as _,
@@ -356,15 +384,19 @@ impl std::os::fd::AsRawFd for XdpSocketBuilder {
     }
 }
 
-/// An `AF_XDP` socket that can be polled for I/O operations
+/// An [`AF_XDP`](https://en.wikipedia.org/wiki/Express_Data_Path#AF_XDP) socket
+/// that can be polled for I/O operations
 pub struct XdpSocket {
     sock: std::os::fd::OwnedFd,
 }
 
+/// A timeout that must be passed to one of the poll operations on [`XdpSocket`]
 #[derive(Copy, Clone)]
 pub struct PollTimeout(i32);
 
 impl PollTimeout {
+    /// Creates a [`Self`] from a [`std::time::Duration`], passing `Option::None`
+    /// will create an infinite timeout
     pub const fn new(duration: Option<std::time::Duration>) -> Self {
         let ms = if let Some(dur) = duration {
             let ms = dur.as_millis();
@@ -382,23 +414,26 @@ impl PollTimeout {
 }
 
 impl XdpSocket {
+    /// Polls both read and write
     #[inline]
     pub fn poll(&self, timeout: PollTimeout) -> std::io::Result<bool> {
         self.poll_inner(libc::POLLIN | libc::POLLOUT, timeout)
     }
 
+    /// Polls read
     #[inline]
     pub fn poll_read(&self, timeout: PollTimeout) -> std::io::Result<bool> {
         self.poll_inner(libc::POLLIN, timeout)
     }
 
+    /// Polls write
     #[inline]
     pub fn poll_write(&self, timeout: PollTimeout) -> std::io::Result<bool> {
         self.poll_inner(libc::POLLOUT, timeout)
     }
 
     #[inline]
-    pub fn poll_inner(&self, events: i16, timeout: PollTimeout) -> std::io::Result<bool> {
+    fn poll_inner(&self, events: i16, timeout: PollTimeout) -> std::io::Result<bool> {
         let ret = unsafe {
             libc::poll(
                 &mut libc::pollfd {
@@ -423,6 +458,7 @@ impl XdpSocket {
         }
     }
 
+    /// Gets the file descriptor for the socket
     #[inline]
     pub fn raw_fd(&self) -> std::os::fd::RawFd {
         self.sock.as_raw_fd()

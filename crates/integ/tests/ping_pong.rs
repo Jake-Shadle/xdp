@@ -1,5 +1,5 @@
-#![cfg(any())]
 //! Tests ping ponging a UDP packet between a client and server on separate veth interfaces
+#![cfg(any())]
 
 use test_utils::netlink::*;
 use umem::UmemCfgBuilder;

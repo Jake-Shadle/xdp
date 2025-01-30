@@ -1,3 +1,5 @@
+//! [`Umem`] creation and operation
+
 use crate::{
     bindings::{self, xdp_desc, InternalXdpFlags},
     error::{ConfigError, Error},
@@ -38,8 +40,23 @@ impl TryFrom<FrameSize> for u32 {
     }
 }
 
-/// A memory region that can be shared between kernel and userspace where packet
+/// A memory region that is shared between kernel and userspace where packet
 /// data can be written to (recv) and read from (send)
+///
+/// ```
+/// ┌──────┌──────┌──────┌──────┌──────┌──────┌──────┐
+/// │chunk0│chunk1│chunk2│chunk3│chunk4│chunk5│...   │
+/// └──────└──────└──────└──────└──────└──────└──────┘
+/// ```
+///
+/// A [`Umem`] can best be thought of as a specialized memory allocator that
+/// is only capable of returning buffers of the same size, and cannot grow after
+/// initialization.
+///
+/// This is the single source of `unsafe` that is exposed in the public API, along
+/// with the [`TxRing::send`], [`RxRing::recv`], and [`FillRing::enqueue`] methods
+/// as it vastly simplifies the API to require the user to guarantee that [`Packet`]s
+/// cannot outlive the [`Umem`] they are allocated from
 pub struct Umem {
     /// The actual memory mapping
     pub(crate) mmap: memmap2::MmapMut,
@@ -56,7 +73,6 @@ pub struct Umem {
     /// changing from IPv4 -> IPv6 without needing to copying data upwards
     pub(crate) head_room: usize,
     pub(crate) options: u32,
-    //pub(crate) frame_count: usize,
 }
 
 impl Umem {
@@ -159,6 +175,12 @@ impl Umem {
     /// pool for future use
     #[inline]
     pub fn free_packet(&mut self, packet: Packet) {
+        debug_assert_eq!(
+            packet.base,
+            self.mmap.as_ptr(),
+            "the packet was not allocated from this Umem"
+        );
+
         self.free_addr(unsafe {
             packet
                 .data
@@ -260,12 +282,12 @@ impl UmemCfgBuilder {
     pub fn build(self) -> Result<UmemCfg, Error> {
         let frame_size = self.frame_size.try_into()?;
 
-        let head_room = crate::within_range!(
+        let head_room = within_range!(
             self,
             head_room,
             0..(frame_size - bindings::XDP_PACKET_HEADROOM as u32) as _
         );
-        let frame_count = crate::within_range!(self, frame_count, 1..u32::MAX as _);
+        let frame_count = within_range!(self, frame_count, 1..u32::MAX as _);
 
         Ok(UmemCfg {
             frame_size,
@@ -280,6 +302,7 @@ impl UmemCfgBuilder {
     }
 }
 
+/// The configuration used to create a [`Umem`]
 #[derive(Copy, Clone)]
 pub struct UmemCfg {
     frame_size: u32,

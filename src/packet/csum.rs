@@ -1,3 +1,5 @@
+//! Utitlities for calculating [internet checksums](https://en.wikipedia.org/wiki/Internet_checksum)
+
 /// Folds a running checksum calculation to a 16-bit value appropriate for use
 /// in a checksum field
 #[inline]
@@ -9,12 +11,15 @@ pub fn fold_checksum(mut csum: u32) -> u16 {
     !csum as u16
 }
 
+/// Converts a running checksum calculation to a 16-bit checksum appropriate
+/// for setting in a checksum field
 #[inline]
 pub fn to_u16(mut csum: u32) -> u16 {
     csum = csum.overflowing_add(csum.rotate_left(16)).0;
     (csum >> 16) as u16
 }
 
+/// Add with carry
 #[inline]
 pub fn add(mut a: u32, b: u32) -> u32 {
     unsafe {
@@ -29,6 +34,7 @@ pub fn add(mut a: u32, b: u32) -> u32 {
     a
 }
 
+/// Subtract with carry
 #[inline]
 pub fn sub(a: u32, b: u32) -> u32 {
     add(a, !b)
@@ -208,10 +214,14 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
 
 use crate::packet::net_types as nt;
 
+/// Errors that can occur during UDP checksum calculation
 #[derive(Debug)]
 pub enum UdpCalcError {
+    /// Not an IP packet
     NotIp(nt::EtherType),
+    /// Not a UDP packet
     NotUdp(nt::IpProto),
+    /// Packet data was invalid/corrupt
     Packet(super::PacketError),
 }
 
@@ -254,6 +264,11 @@ impl super::Packet {
     ///
     /// This method is here for convenience, but it might be better in some
     /// scenarios to use a running checksum calculation like [`partial`] or [`diff`]
+    ///
+    /// This method takes TX checksum offload into account, and will only
+    /// calculate the partial (pseudo header + UDP header) checksum, and configure
+    /// the TX metadata for the packet so that the data checksum will be calculated
+    /// by the NIC that sends the packet
     pub fn calc_udp_checksum(&mut self) -> Result<u16, UdpCalcError> {
         use nt::*;
 
@@ -325,7 +340,7 @@ impl super::Packet {
                     finalize(sum)
                 }
             }
-            other => return Err(UdpCalcError::NotIp(other)),
+            EtherType::Arp => return Err(UdpCalcError::NotIp(EtherType::Arp)),
         };
 
         let checksum = if self.can_offload_checksum() {

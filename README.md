@@ -4,7 +4,7 @@
 
 # `📨 xdp`
 
-**AF_XDP socket support in Rust**
+**`AF_XDP` socket support in Rust**
 
 [![Crates.io](https://img.shields.io/crates/v/xdp.svg)](https://crates.io/crates/xdp)
 [![API Docs](https://docs.rs/xdp/badge.svg)](https://docs.rs/xdp)
@@ -27,7 +27,7 @@ This crate is still early days, and focused on the needs of [Quilkin](https://gi
 - [x] - Basic Umem support
 - [ ] - Shared Umem support
 - [x] - Fill, RX, TX, Completion rings
-- [ ] - [TX checksum offload/completion timestamp](https://docs.kernel.org/networking/xsk-tx-metadata.html)
+- [x] - [TX checksum offload/completion timestamp](https://docs.kernel.org/networking/xsk-tx-metadata.html)
 - [ ] - [RX metadata](https://docs.kernel.org/networking/xdp-rx-metadata.html)
 
 ## License

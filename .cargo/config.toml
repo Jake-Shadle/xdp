@@ -71,4 +71,5 @@ rustflags = [
     "-Wfuture_incompatible",
     "-Wnonstandard_style",
     "-Wrust_2018_idioms",
+    "-Dmissing_docs",
 ]

@@ -1,3 +1,6 @@
+//! The [`RxRing`] is a consumer ring that userspace can dequeue packets that have
+//! been received on the NIC queue the ring is bound to
+
 use super::bindings::*;
 use crate::{HeapSlab, Umem};
 
@@ -69,46 +72,3 @@ impl RxRing {
         self.ring.release(actual as _);
     }
 }
-
-// pub struct WakableRxRing {
-//     inner: RxRing,
-//     socket: std::os::fd::RawFd,
-// }
-
-// impl WakableRxRing {
-//     pub(crate) fn new(
-//         socket: std::os::fd::RawFd,
-//         cfg: &super::RingConfig,
-//         offsets: &libc::xdp_mmap_offsets,
-//     ) -> std::io::Result<Self> {
-//         let inner = RxRing::new(socket, cfg, offsets)?;
-
-//         Ok(Self { inner, socket })
-//     }
-
-//     pub fn recv<'umem>(&mut self, umem: &'umem Umem, frames: &mut Slab<Frame<'umem>>) -> usize {
-//         let nb = frames.available();
-//         if nb == 0 {
-//             return 0;
-//         }
-
-//         let (actual, idx) = self.inner.ring.peek(nb as _);
-//         if actual == 0 {
-//             // SAFETY: should be safe even if the socket descriptor is invalid
-//             unsafe {
-//                 libc::recvfrom(
-//                     self.socket,
-//                     std::ptr::null_mut(),
-//                     0,
-//                     libc::MSG_DONTWAIT,
-//                     std::ptr::null_mut(),
-//                     std::ptr::null_mut(),
-//                 )
-//             };
-//             return 0;
-//         }
-
-//         self.inner.do_recv(actual, idx, umem, frames);
-//         actual
-//     }
-// }

@@ -1,3 +1,5 @@
+//! Utilities for raw [`Packet`] reading and writing
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod csum;
 pub mod net_types;
@@ -5,25 +7,39 @@ pub mod net_types;
 use crate::bindings;
 use std::fmt;
 
+/// Errors that can occur when reading/writing [`Packet`] contents
 #[derive(Debug)]
 pub enum PacketError {
+    /// The packet head could not be moved down as there was not enough headroom
     InsufficientHeadroom {
+        /// The amount of bytes that the head attempted to move down
         diff: usize,
+        /// The head position
         head: usize,
     },
+    /// Attempted to move the head past the tail, or the tail past the end of the
+    /// packet's maximum
     InvalidPacketLength {},
+    /// Attempted to get or set data at an invalid offset
     InvalidOffset {
+        /// The invalid offset
         offset: usize,
+        /// The length the offset must be below
         length: usize,
     },
+    /// Attempt to retrieve data outside the bounds of the currently valid contents
     InsufficientData {
+        /// The offset the data would start at
         offset: usize,
+        /// The size of the data requested
         size: usize,
+        /// The length of the actual valid contents
         length: usize,
     },
 }
 
 impl PacketError {
+    /// Gets a static string description of the error
     #[inline]
     pub fn discriminant(&self) -> &'static str {
         match self {
@@ -50,16 +66,19 @@ impl fmt::Display for PacketError {
 ///
 /// See [`std::mem::zeroed`]
 pub unsafe trait Pod: Sized {
+    /// Gets the size of the type in bytes
     #[inline]
     fn size() -> usize {
         std::mem::size_of::<Self>()
     }
 
+    /// Gets a zeroed [`Self`]
     #[inline]
     fn zeroed() -> Self {
         unsafe { std::mem::zeroed() }
     }
 
+    /// Gets [`Self`] as a byte slice
     #[inline]
     fn as_bytes(&self) -> &[u8] {
         unsafe {
@@ -72,22 +91,36 @@ const fn tx_metadata_diff() -> i32 {
     -(std::mem::size_of::<bindings::xsk_tx_metadata>() as i32)
 }
 
+/// Configures TX checksum offload when setting TX metadata via [`Packet::set_tx_metadata`]
 pub enum CsumOffload {
+    /// Requests checksum offload
     Request(bindings::xsk_tx_request),
+    /// Offload is not requested
     None,
 }
 
 /// A packet of data which can be received by the kernel or sent by userspace
 ///
 /// ```text
-/// ┌───────────────┌─────────────────────────────────────────────┌─────────────┐
-/// │headroom       │packet                                       │remainder    │
-/// └───────────────└─────────────────────────────────────────────└─────────────┘
-///                 ▲                                             ▲              
-///                 │                                             │              
-///                 │                                             │              
-///                 head                                          tail           
+/// ┌──────────────────┌─────────────────┌───────────────────────┌─────────────┐
+/// │headroom (kernel) │headroom (opt)   │packet                 │remainder    │
+/// └──────────────────└─────────────────└───────────────────────└─────────────┘
+///                                      ▲                       ▲              
+///                                      │                       │              
+///                                      │                       │              
+///                                      head                    tail           
 /// ```
+///
+/// 1. The first ([`bindings::XDP_PACKET_HEADROOM`] segment of the buffer is
+///     reserved for kernel usage
+/// 1. `headroom` is an optional segment that can be configured on the [`Umem`]
+///     the packet is allocated from which the kernel will not fill with data,
+///     allowing the packet to grow downwards (eg. IPv4 -> IPv6) without copying
+///     bytes
+/// 1. The next segment is the actual packet contents as received by the NIC or
+///     sent by userspace
+/// 1. The last segment is uninitialized portion of the chunk occupied by this
+///     packet, up to the size configured on the owning [`Umem`]
 ///
 /// The packet portion of the packet is then composed of the various layers/data,
 /// for example an IPv4 UDP packet:
@@ -101,6 +134,8 @@ pub enum CsumOffload {
 /// │               │                    │        │          │    
 ///  head            +14                  +34      +42        tail
 /// ```
+///
+///
 pub struct Packet {
     /// The entire packet buffer, including headroom, initialized packet contents,
     /// and uninitialized/empty remainder
@@ -130,9 +165,14 @@ impl Packet {
 
     /// The number of initialized/valid bytes in the packet
     #[inline]
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.tail - self.head
+    }
+
+    /// True if the packet is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.head == self.tail
     }
 
     /// The total capacity of the packet.
@@ -142,6 +182,12 @@ impl Packet {
     #[inline]
     pub fn capacity(&self) -> usize {
         self.data.len()
+    }
+
+    /// Resets the tail of this packet, causing it to become empty
+    #[inline]
+    pub fn clear(&mut self) {
+        self.tail = self.head;
     }
 
     /// If true, this packet is partial, and the next packet in the RX continues

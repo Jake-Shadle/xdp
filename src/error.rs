@@ -1,9 +1,15 @@
+//! Errors that can be returned by various calls in this crate
+
 pub use crate::{packet::PacketError, socket::SocketError};
 use std::fmt;
 
+/// Errors that can occur when using this crate
 pub enum Error {
+    /// A configuration error
     Cfg(ConfigError),
+    /// A packet error
     Packet(PacketError),
+    /// A socket error
     Socket(SocketError),
 }
 
@@ -67,9 +73,12 @@ impl From<PacketError> for Error {
     }
 }
 
+/// A configuration error
 #[derive(Debug)]
 pub struct ConfigError {
+    /// The name of the setting/field
     pub name: &'static str,
+    /// The error
     pub kind: ConfigErrorKind,
 }
 
@@ -96,76 +105,21 @@ impl std::error::Error for ConfigError {
     }
 }
 
+/// Different configuration errors that can occur
 #[derive(Debug)]
 pub enum ConfigErrorKind {
     /// Many configuration options for buffer/ring sizes require non-zero values
     Zero,
     /// Many configuration options for buffer/ring sizes require powers of 2
     NonPowerOf2,
+    /// A value was out of range
     OutOfRange {
+        /// The size requested by the user
         size: usize,
+        /// The valid range that size did not fall within
         range: std::ops::Range<usize>,
     },
     /// It is invalid for an XDP socket to have neither a [`TxRing`] nor a [`RxRing`]
     /// it must have one or both
     MustSendOrRecv,
-}
-
-#[macro_export]
-macro_rules! non_zero_and_power_of_2 {
-    ($ctx:expr, $name:ident) => {{
-        let val = $ctx.$name;
-        if val == 0 {
-            return Err($crate::error::ConfigError {
-                name: stringify!($name),
-                kind: $crate::error::ConfigErrorKind::Zero,
-            }
-            .into());
-        } else if !val.is_power_of_two() {
-            return Err($crate::error::ConfigError {
-                name: stringify!($name),
-                kind: $crate::error::ConfigErrorKind::NonPowerOf2,
-            }
-            .into());
-        }
-
-        val
-    }};
-}
-
-#[macro_export]
-macro_rules! zero_or_power_of_2 {
-    ($ctx:expr, $name:ident) => {{
-        let val = $ctx.$name;
-        if val != 0 && !val.is_power_of_two() {
-            return Err($crate::error::ConfigError {
-                name: stringify!($name),
-                kind: $crate::error::ConfigErrorKind::NonPowerOf2,
-            }
-            .into());
-        }
-
-        val
-    }};
-}
-
-#[macro_export]
-macro_rules! within_range {
-    ($ctx:expr, $name:ident, $range:expr) => {{
-        let val = $ctx.$name;
-        let uval = val as usize;
-
-        if !$range.contains(&uval) {
-            return Err($crate::error::ConfigError {
-                name: stringify!($name),
-                kind: $crate::error::ConfigErrorKind::OutOfRange {
-                    size: uval,
-                    range: $range,
-                },
-            }
-            .into());
-        }
-
-        val
-    }};
 }

@@ -1,3 +1,6 @@
+//! The [`FillRing`] is a producer ring that userspace can enqueue packets to be
+//! filled with data received on the NIC queue the ring is bound to
+
 use super::bindings::*;
 use crate::Umem;
 

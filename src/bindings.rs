@@ -28,12 +28,18 @@ pub enum XdpFlags {
     XDP_TX_METADATA = 1 << 1,
 }
 
+/// Internal flags to enable TX offload features if they were enabled at
+/// socket creation
 #[derive(Copy, Clone)]
 #[repr(u32)]
 pub enum InternalXdpFlags {
+    /// TX checksum offload is enabled
     SupportsChecksumOffload = 1 << 31,
+    /// TX checksum offload is enabled in software
     SoftwareOffload = 1 << 30 | 1 << 31,
+    /// TX completion timestamp is supported
     CompletionTimestamp = 1 << 29,
+    /// Mask of valid flags
     Mask = 0xf0000000,
 }
 
@@ -112,9 +118,13 @@ pub mod rings {
     /// [Source](https://github.com/torvalds/linux/blob/7af08b57bcb9ebf78675c50069c54125c0a8b795/include/uapi/linux/if_xdp.h#L109-L112)
     #[repr(u64)]
     pub enum RingPageOffsets {
+        /// Offset for the RX ring
         Rx = 0,
+        /// Offset for the TX ring
         Tx = 0x80000000,
+        /// Offset for the Fill ring
         Fill = 0x100000000,
+        /// Offset for the Completion ring
         Completion = 0x180000000,
     }
 
@@ -129,6 +139,7 @@ pub mod rings {
         pub consumer: u64,
         /// The offset in the mmap where the ring will actually store data
         pub desc: u64,
+        /// Currently unused
         pub flags: u64,
     }
 
@@ -137,9 +148,13 @@ pub mod rings {
     /// [Source](https://github.com/torvalds/linux/blob/7af08b57bcb9ebf78675c50069c54125c0a8b795/include/uapi/linux/if_xdp.h#L66-L71)
     #[repr(C)]
     pub struct xdp_mmap_offsets {
+        /// RX ring
         pub rx: xdp_ring_offset,
+        /// TX ring
         pub tx: xdp_ring_offset,
+        /// Fill ring
         pub fill: xdp_ring_offset,
+        /// Completion ring
         pub completion: xdp_ring_offset,
     }
 }

@@ -1,3 +1,6 @@
+//! The [`CompletionRing`] is a consumer ring that userspace can dequeue packets
+//! that have been sent on the NIC queue the ring is bound to
+
 use super::bindings::*;
 use crate::Umem;
 

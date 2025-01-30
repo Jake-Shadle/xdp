@@ -1,8 +1,11 @@
+//! Core affinity helpers
+
 use std::{
     io::{Error, Result},
     mem,
 };
 
+/// A logical CPU id
 #[derive(Copy, Clone)]
 pub struct CoreId(pub usize);
 
@@ -31,6 +34,7 @@ pub struct CoreIds {
 }
 
 impl CoreIds {
+    /// Creates an iterator over the available CPUs
     #[inline]
     pub fn new() -> Result<Self> {
         let set = unsafe {

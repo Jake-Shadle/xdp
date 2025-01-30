@@ -1,3 +1,6 @@
+//! The [`TxRing`] is a producer ring that userspace can enqueue packets to be
+//! sent by the NIC the ring is bound to
+
 use super::bindings::*;
 use crate::HeapSlab;
 
