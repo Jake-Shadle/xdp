@@ -63,7 +63,7 @@ pub struct XdpSocketBuilder {
 #[derive(Copy, Clone, Debug)]
 #[repr(i32)]
 pub enum OptName {
-    /// Configures the [`Umem`] shared between the kernel and userspace
+    /// Configures the [`crate::Umem`] shared between the kernel and userspace
     UmemRegion = libc::XDP_UMEM_REG,
     /// Configures the length of the [`rings::FillRing`]
     UmemFillRing = libc::XDP_UMEM_FILL_RING,

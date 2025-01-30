@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 use xdp::{
     packet::{net_types as nt, *},
     socket::*,

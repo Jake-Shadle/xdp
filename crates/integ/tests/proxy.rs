@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 #![cfg(any())]
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};

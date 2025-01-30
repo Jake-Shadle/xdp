@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 pub mod netlink;
 pub use aya::programs::XdpFlags;
 

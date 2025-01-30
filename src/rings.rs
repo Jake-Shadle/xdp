@@ -69,9 +69,9 @@ pub enum Ring {
 ///
 /// `rx_count` OR `tx_count` may be zero, but not both
 pub struct RingConfigBuilder {
-    /// The maximum number of entries in the [`RxRing`] or [`WakableRxRing`]
+    /// The maximum number of entries in the [`RxRing`]
     pub rx_count: u32,
-    /// The maximum number of entries in the [`TxRing`]
+    /// The maximum number of entries in the [`TxRing`] or [`WakableTxRing`]
     pub tx_count: u32,
     /// The maximum number of entries in the [`FillRing`] or [`WakableFillRing`]
     pub fill_count: u32,

@@ -43,7 +43,7 @@ impl TryFrom<FrameSize> for u32 {
 /// A memory region that is shared between kernel and userspace where packet
 /// data can be written to (recv) and read from (send)
 ///
-/// ```
+/// ```txt
 /// ┌──────┌──────┌──────┌──────┌──────┌──────┌──────┐
 /// │chunk0│chunk1│chunk2│chunk3│chunk4│chunk5│...   │
 /// └──────└──────└──────└──────└──────└──────└──────┘
@@ -54,9 +54,10 @@ impl TryFrom<FrameSize> for u32 {
 /// initialization.
 ///
 /// This is the single source of `unsafe` that is exposed in the public API, along
-/// with the [`TxRing::send`], [`RxRing::recv`], and [`FillRing::enqueue`] methods
-/// as it vastly simplifies the API to require the user to guarantee that [`Packet`]s
-/// cannot outlive the [`Umem`] they are allocated from
+/// with the [`crate::TxRing::send`], [`crate::RxRing::recv`], and
+/// [`crate::FillRing::enqueue`] methods as it vastly simplifies the API to
+/// require the user to guarantee that [`Packet`]s cannot outlive the [`Umem`]
+/// they are allocated from
 pub struct Umem {
     /// The actual memory mapping
     pub(crate) mmap: memmap2::MmapMut,
@@ -243,7 +244,7 @@ impl UmemPopper<'_> {
 
 /// Builder for a [`Umem`].
 ///
-/// Using [`UmemCfgBuilder::Default`] will result in a [`Umem`] with 8k frames of
+/// Using [`UmemCfgBuilder::default`] will result in a [`Umem`] with 8k frames of
 /// size 4k for a total of 32MiB.
 pub struct UmemCfgBuilder {
     /// The size of each packet/chunk. Defaults to 4096.

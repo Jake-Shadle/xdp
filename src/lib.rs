@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
 macro_rules! within_range {
@@ -34,7 +35,7 @@ pub use umem::Umem;
 
 pub use rings::{
     CompletionRing, FillRing, RingConfig, RingConfigBuilder, Rings, RxRing, TxRing,
-    WakableFillRing, WakableRings,
+    WakableFillRing, WakableRings, WakableTxRing,
 };
 
 // TODO: This is using VecDequeue (heap) internally, but in most situations this

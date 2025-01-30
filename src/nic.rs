@@ -217,7 +217,7 @@ pub enum TxMetadataFlags {
     Checksum = 1 << 1,
 }
 
-/// The [`TxMetdataFlags`] supported by a NIC
+/// The [`TxMetadataFlags`] supported by a NIC
 #[derive(Copy, Clone)]
 pub struct XdpTxMetadata(u64);
 

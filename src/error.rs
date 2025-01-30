@@ -119,7 +119,7 @@ pub enum ConfigErrorKind {
         /// The valid range that size did not fall within
         range: std::ops::Range<usize>,
     },
-    /// It is invalid for an XDP socket to have neither a [`TxRing`] nor a [`RxRing`]
-    /// it must have one or both
+    /// It is invalid for an XDP socket to have neither a [`crate::TxRing`] nor
+    /// a [`crate::RxRing`] it must have one or both
     MustSendOrRecv,
 }

@@ -111,16 +111,16 @@ pub enum CsumOffload {
 ///                                      head                    tail           
 /// ```
 ///
-/// 1. The first ([`bindings::XDP_PACKET_HEADROOM`] segment of the buffer is
+/// 1. The first ([`bindings::XDP_PACKET_HEADROOM`]) segment of the buffer is
 ///     reserved for kernel usage
-/// 1. `headroom` is an optional segment that can be configured on the [`Umem`]
+/// 1. `headroom` is an optional segment that can be configured on the [`crate::umem::UmemCfgBuilder::head_room`]
 ///     the packet is allocated from which the kernel will not fill with data,
 ///     allowing the packet to grow downwards (eg. IPv4 -> IPv6) without copying
 ///     bytes
 /// 1. The next segment is the actual packet contents as received by the NIC or
 ///     sent by userspace
-/// 1. The last segment is uninitialized portion of the chunk occupied by this
-///     packet, up to the size configured on the owning [`Umem`]
+/// 1. The last segment is the uninitialized portion of the chunk occupied by this
+///     packet, up to the size configured on the owning [`crate::Umem`].
 ///
 /// The packet portion of the packet is then composed of the various layers/data,
 /// for example an IPv4 UDP packet:
@@ -213,7 +213,7 @@ impl Packet {
     /// allowing modification of layers (eg. layer 3 IPv4 <-> IPv6) without needing
     /// to copy the entirety of the packet data up or down.
     ///
-    /// Adjusting the head down requires that headroom was configured for the [`Umem`]
+    /// Adjusting the head down requires that headroom was configured for the [`crate::Umem`]
     #[inline]
     pub fn adjust_head(&mut self, diff: i32) -> Result<(), PacketError> {
         if diff < 0 {
@@ -435,7 +435,7 @@ impl Packet {
 
     /// Sets the specified [TX metadata](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/Documentation/networking/xsk-tx-metadata.rst)
     ///
-    /// Calling this function requires that the [`UmemCfgBuilder::tx_metadata`]
+    /// Calling this function requires that the [`crate::umem::UmemCfgBuilder::tx_metadata`]
     /// was true.
     ///
     /// - If `csum` is `CsumOffload::Request`, this will request that the Layer 4

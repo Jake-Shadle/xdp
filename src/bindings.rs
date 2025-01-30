@@ -69,7 +69,7 @@ pub struct xdp_desc {
 
 /// Request transmit timestamp.
 ///
-/// Upon completion, fills [`xsk_tx_offload::Completion::tx_timestamp`]
+/// Upon completion, fills [`xsk_tx_offload::completion`]
 pub const XDP_TXMD_FLAGS_TIMESTAMP: u64 = 1;
 
 /// Request transmit checksum offload.
@@ -81,7 +81,7 @@ pub const XDP_TXMD_FLAGS_CHECKSUM: u64 = 2;
 pub struct xsk_tx_request {
     /// Offset from [`xdp_desc::addr`] where checksumming should start.
     pub csum_start: u16,
-    /// Offset from [`Self::Request::csum_start`] where checksum should be stored.
+    /// Offset from [`Self::csum_start`] where checksum should be stored.
     pub csum_offset: u16,
 }
 

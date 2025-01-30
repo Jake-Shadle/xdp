@@ -43,7 +43,7 @@ impl TxRing {
     ///
     /// # Safety
     ///
-    /// The [`Umem`] that owns the packets being sent must outlive the `AF_XDP`
+    /// The [`crate::Umem`] that owns the packets being sent must outlive the `AF_XDP`
     /// socket
     ///
     /// # Returns
@@ -96,7 +96,7 @@ impl WakableTxRing {
     ///
     /// # Safety
     ///
-    /// The [`Umem`] that owns the packets being sent must outlive the `AF_XDP`
+    /// The [`crate::Umem`] that owns the packets being sent must outlive the `AF_XDP`
     /// socket
     ///
     /// # Returns
