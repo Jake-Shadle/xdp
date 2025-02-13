@@ -6,7 +6,12 @@
 //! has dependencies (unlike libc) and just generally includes a bunch of stuff
 //! we don't need, same as libc
 
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    clippy::upper_case_acronyms
+)]
 
 use std::{ffi::c_void, os::fd::RawFd};
 
@@ -141,7 +146,7 @@ pub mod rings {
 pub mod xdp {
     /// The various `SOL_XDP` socket options.
     ///
-    /// Defined in <include/uapi/linux/if_xdp.h>
+    /// Defined in `<include/uapi/linux/if_xdp.h>`
     pub(crate) mod SockOpts {
         pub type Enum = i32;
 
@@ -157,7 +162,7 @@ pub mod xdp {
 
     /// The various `AF_XDP` bind flags.
     ///
-    /// Defined in <include/uapi/linux/if_xdp.h>
+    /// Defined in `<include/uapi/linux/if_xdp.h>`
     pub mod BindFlags {
         /// Integer type for the flags
         pub type Enum = u16;
@@ -176,13 +181,15 @@ pub mod xdp {
         /// set.
         ///
         /// If it is set, the application need to explicitly wake up the
-        /// driver with a poll() (Rx and Tx) or sendto() (Tx only). If you are
-        /// running the driver and the application on the same core, you should
-        /// use this option so that the kernel will yield to the user space
-        /// application.
+        /// driver with a [`poll`](https://man7.org/linux/man-pages/man2/poll.2.html)
+        /// (Rx and Tx) or [`sendto`](https://man7.org/linux/man-pages/man3/sendto.3p.html) (Tx only).
+        ///
+        /// If you are running the driver and the application on the same core,
+        /// you should use this option so that the kernel will yield to the user
+        /// space application.
         pub const NeedWakeup: Enum = 1 << 3;
         /// By setting this option, userspace application indicates that it can
-        /// handle multiple descriptors per packet thus enabling AF_XDP to split
+        /// handle multiple descriptors per packet thus enabling `AF_XDP` to split
         /// multi-buffer XDP frames into multiple Rx descriptors. Without this set
         /// such frames will be dropped.
         pub const UseSG: Enum = 1 << 4;
@@ -218,10 +225,12 @@ pub mod xdp {
         /// Umem chunks are not power of 2 (ie, 2k or 4k)
         pub const UnalignedChunkFlag: Enum = 1 << 0;
         /// Force checksum calculation in software. Can be used for testing or
-        /// working around potential HW issues. This option causes performance
-        /// degradation and only works in XDP_COPY mode.
+        /// working around potential HW issues.
+        ///
+        /// This option causes performance degradation and only works in
+        /// `XDP_COPY` mode.
         pub const TxSwCsum: Enum = 1 << 1;
-        /// Request to reserve tx_metadata_len bytes of per-chunk metadata.
+        /// Request to reserve `tx_metadata_len` bytes of per-chunk metadata.
         pub const TxMetadataLen: Enum = 1 << 2;
     }
 
@@ -399,10 +408,10 @@ pub(crate) mod iface {
 
     /// No interface found with given name.
     pub const ENODEV: i32 = 19;
+
     /// Directory entry type for a directory
     pub const DT_DIR: u8 = 4;
 
-    ///
     pub const SIOCETHTOOL: u64 = 0x00008946;
 
     pub const RTF_UP: u16 = 0x0001;
