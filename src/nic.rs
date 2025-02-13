@@ -1,5 +1,7 @@
 //! Utilities for querying NIC capabilities
 
+use crate::libc::{iface, socket};
+
 #[cfg(test)]
 macro_rules! flag_strings {
     ($table:expr, $v:expr, $f:expr) => {{
@@ -304,11 +306,11 @@ impl NicIndex {
     #[inline]
     pub fn lookup_by_name(ifname: &std::ffi::CStr) -> std::io::Result<Option<Self>> {
         unsafe {
-            let res = libc::if_nametoindex(ifname.as_ptr());
+            let res = iface::if_nametoindex(ifname.as_ptr());
             if res == 0 {
                 let err = std::io::Error::last_os_error();
 
-                if err.raw_os_error() == Some(libc::ENODEV) {
+                if err.raw_os_error() == Some(iface::ENODEV) {
                     Ok(None)
                 } else {
                     Err(err)
@@ -322,12 +324,12 @@ impl NicIndex {
     /// Retrieves the interface's name
     #[inline]
     pub fn name(&self) -> std::io::Result<NicName> {
-        let mut name = [0; libc::IF_NAMESIZE];
-        if unsafe { !libc::if_indextoname(self.0, name.as_mut_ptr()).is_null() } {
+        let mut name = [0; iface::IF_NAMESIZE];
+        if unsafe { !iface::if_indextoname(self.0, name.as_mut_ptr()).is_null() } {
             let len = name
                 .iter()
                 .position(|n| *n == 0)
-                .unwrap_or(libc::IF_NAMESIZE);
+                .unwrap_or(iface::IF_NAMESIZE);
             Ok(NicName { arr: name, len })
         } else {
             Err(std::io::Error::last_os_error())
@@ -340,18 +342,18 @@ impl NicIndex {
         &self,
     ) -> std::io::Result<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>)> {
         unsafe {
-            let mut ifaddrs = std::mem::MaybeUninit::<*mut libc::ifaddrs>::uninit();
-            if libc::getifaddrs(ifaddrs.as_mut_ptr()) != 0 {
+            let mut ifaddrs = std::mem::MaybeUninit::<*mut iface::ifaddrs>::uninit();
+            if iface::getifaddrs(ifaddrs.as_mut_ptr()) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
 
             let ifaddrs = ifaddrs.assume_init();
             let mut cur = ifaddrs.as_ref();
 
-            struct Ifaddrs(*mut libc::ifaddrs);
+            struct Ifaddrs(*mut iface::ifaddrs);
             impl Drop for Ifaddrs {
                 fn drop(&mut self) {
-                    unsafe { libc::freeifaddrs(self.0) };
+                    unsafe { iface::freeifaddrs(self.0) };
                 }
             }
 
@@ -364,7 +366,7 @@ impl NicIndex {
             while let Some(ifaddr) = cur {
                 cur = ifaddr.ifa_next.as_ref();
 
-                if libc::strncmp(name.arr.as_ptr(), ifaddr.ifa_name, name.len as _) != 0 {
+                if iface::strncmp(name.arr.as_ptr(), ifaddr.ifa_name, name.len) != 0 {
                     continue;
                 }
 
@@ -372,16 +374,14 @@ impl NicIndex {
                     continue;
                 };
 
-                match addr.sa_family as libc::c_int {
-                    libc::AF_INET => {
-                        let addr = &*ifaddr.ifa_addr.cast::<libc::sockaddr_in>();
-                        ipv4 = Some(std::net::Ipv4Addr::from_bits(u32::from_be(
-                            addr.sin_addr.s_addr,
-                        )));
+                match addr.sa_family as socket::AddressFamily::Enum {
+                    socket::AddressFamily::AF_INET => {
+                        let addr = &*ifaddr.ifa_addr.cast::<socket::sockaddr_in>();
+                        ipv4 = Some(std::net::Ipv4Addr::from_bits(u32::from_be(addr.sin_addr)));
                     }
-                    libc::AF_INET6 => {
-                        let addr = &*ifaddr.ifa_addr.cast::<libc::sockaddr_in6>();
-                        ipv6 = Some(addr.sin6_addr.s6_addr.into());
+                    socket::AddressFamily::AF_INET6 => {
+                        let addr = &*ifaddr.ifa_addr.cast::<socket::sockaddr_in6>();
+                        ipv6 = Some(addr.sin6_addr.into());
                     }
                     _ => continue,
                 }
@@ -412,7 +412,7 @@ impl NicIndex {
 
         // SAFETY: syscall
         let socket = unsafe {
-            let fd = libc::socket(libc::AF_LOCAL, libc::SOCK_DGRAM, 0);
+            let fd = socket::socket(socket::AddressFamily::AF_LOCAL, socket::Kind::SOCK_DGRAM, 0);
             if fd < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -442,7 +442,7 @@ impl NicIndex {
         channels.cmd = ETHTOOL_GCHANNELS;
 
         // SAFETY: POD
-        let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
+        let mut ifr: iface::ifreq = unsafe { std::mem::zeroed() };
         ifr.ifr_ifru.ifru_data = (&mut channels as *mut Channels).cast();
 
         let name = self.name()?;
@@ -450,10 +450,10 @@ impl NicIndex {
 
         // SAFETY: The inputs are valid, so this should be fine
         if unsafe {
-            libc::ioctl(
+            iface::ioctl(
                 socket.as_raw_fd(),
-                libc::SIOCETHTOOL,
-                &mut ifr as *mut libc::ifreq,
+                iface::SIOCETHTOOL,
+                &mut ifr as *mut iface::ifreq,
             )
         } != 0
         {
@@ -463,7 +463,7 @@ impl NicIndex {
             const PREFIX: &[u8] = b"/sys/class/net/";
             const SUFFIX: &[u8] = b"/queues/";
 
-            const MAX: usize = PREFIX.len() + libc::IF_NAMESIZE + SUFFIX.len() + 1;
+            const MAX: usize = PREFIX.len() + iface::IF_NAMESIZE + SUFFIX.len() + 1;
 
             // This directory will contain directory named rx-{id} and tx-{id}
             // Note we use libc to read the directory because std::fs::read_dir
@@ -485,17 +485,17 @@ impl NicIndex {
                     SUFFIX.len(),
                 ));
 
-                let dir = libc::opendir(dir_path.as_ptr());
+                let dir = iface::opendir(dir_path.as_ptr());
                 if dir.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
 
-                struct Dir(*mut libc::DIR);
+                struct Dir(*mut iface::DIR);
                 impl Drop for Dir {
                     fn drop(&mut self) {
                         // SAFETY: we only construct with a valid DIR
                         unsafe {
-                            libc::closedir(self.0);
+                            iface::closedir(self.0);
                         }
                     }
                 }
@@ -505,8 +505,8 @@ impl NicIndex {
                 // These _should_ be zero if the ioctl fails, but just in case
                 channels = std::mem::zeroed();
 
-                while let Some(entry) = libc::readdir(dir.0).as_ref() {
-                    if entry.d_type != libc::DT_DIR {
+                while let Some(entry) = iface::readdir(dir.0).as_ref() {
+                    if entry.d_type != iface::DT_DIR {
                         continue;
                     }
 
@@ -749,7 +749,7 @@ impl PartialEq<NicIndex> for NicIndex {
 /// The human-readable name assigned to a network device
 #[derive(Copy, Clone)]
 pub struct NicName {
-    arr: [i8; libc::IF_NAMESIZE],
+    arr: [i8; iface::IF_NAMESIZE],
     len: usize,
 }
 
@@ -814,6 +814,8 @@ impl Iterator for InterfaceIter {
     type Item = NicIndex;
 
     fn next(&mut self) -> Option<Self::Item> {
+        const IS_UP: u16 = iface::RTF_UP | iface::RTF_GATEWAY;
+
         loop {
             let end = self.routes[self.pos..].find('\n')?;
             let line = &self.routes[self.pos..self.pos + end];
@@ -831,11 +833,11 @@ impl Iterator for InterfaceIter {
                 continue;
             };
 
-            if flags & (libc::RTF_UP | libc::RTF_GATEWAY) != libc::RTF_UP | libc::RTF_GATEWAY {
+            if flags & IS_UP != IS_UP {
                 continue;
             }
 
-            let mut ifname = [0u8; libc::IF_NAMESIZE];
+            let mut ifname = [0u8; iface::IF_NAMESIZE];
             ifname[..name.len()].copy_from_slice(name.as_bytes());
             ifname[name.len()] = 0;
 

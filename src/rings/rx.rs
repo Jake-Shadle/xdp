@@ -1,12 +1,11 @@
 //! The [`RxRing`] is a consumer ring that userspace can dequeue packets that have
 //! been received on the NIC queue the ring is bound to
 
-use super::bindings::*;
-use crate::{HeapSlab, Umem};
+use crate::{libc, HeapSlab, Umem};
 
 /// Ring from which we can dequeue packets that have been filled by the kernel
 pub struct RxRing {
-    ring: super::XskConsumer<crate::bindings::xdp_desc>,
+    ring: super::XskConsumer<libc::xdp::xdp_desc>,
     _mmap: memmap2::MmapMut,
 }
 
@@ -14,15 +13,18 @@ impl RxRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &xdp_mmap_offsets,
+        offsets: &libc::rings::xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
-        let (_mmap, mut ring) =
-            super::map_ring(socket, cfg.rx_count, RingPageOffsets::Rx, &offsets.rx).map_err(
-                |inner| crate::socket::SocketError::RingMap {
-                    inner,
-                    ring: super::Ring::Rx,
-                },
-            )?;
+        let (_mmap, mut ring) = super::map_ring(
+            socket,
+            cfg.rx_count,
+            libc::rings::RingPageOffsets::Rx,
+            &offsets.rx,
+        )
+        .map_err(|inner| crate::socket::SocketError::RingMap {
+            inner,
+            ring: super::Ring::Rx,
+        })?;
 
         ring.cached_consumed = ring.consumer.load(std::sync::atomic::Ordering::Relaxed);
         ring.cached_produced = ring.producer.load(std::sync::atomic::Ordering::Relaxed);

@@ -349,7 +349,7 @@ impl super::Packet {
             udp_hdr.check = !csum;
 
             self.set_tx_metadata(
-                crate::packet::CsumOffload::Request(crate::bindings::xsk_tx_request {
+                crate::packet::CsumOffload::Request(crate::libc::xsk_tx_request {
                     csum_start: offset as u16,
                     csum_offset: std::mem::offset_of!(UdpHdr, check) as u16,
                 }),

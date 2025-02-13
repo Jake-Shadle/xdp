@@ -16,9 +16,9 @@ impl CoreId {
         unsafe {
             let mut set = mem::zeroed();
 
-            libc::CPU_SET(self.0, &mut set);
+            cpu_set(self.0, &mut set);
 
-            if libc::sched_setaffinity(0, mem::size_of_val(&set), &set) != 0 {
+            if sched_setaffinity(0, mem::size_of_val(&set), &set) != 0 {
                 Err(Error::last_os_error())
             } else {
                 Ok(())
@@ -27,9 +27,35 @@ impl CoreId {
     }
 }
 
+#[repr(C)]
+struct CpuSet {
+    bits: [u64; 16],
+}
+
+#[inline]
+fn cpu_set(cpu: usize, cpu_set: &mut CpuSet) {
+    let size_in_bits = 8 * mem::size_of_val(&cpu_set.bits[0]);
+    let (idx, offset) = (cpu / size_in_bits, cpu % size_in_bits);
+    cpu_set.bits[idx] |= 1 << offset;
+}
+
+#[inline]
+fn cpu_is_set(cpu: usize, cpu_set: &CpuSet) -> bool {
+    let size_in_bits = 8 * mem::size_of_val(&cpu_set.bits[0]);
+    let (idx, offset) = (cpu / size_in_bits, cpu % size_in_bits);
+    (cpu_set.bits[idx] & (1 << offset)) != 0
+}
+
+unsafe extern "C" {
+    fn sched_setaffinity(pid: i32, set_size: usize, mask: *const CpuSet) -> i32;
+    fn sched_getaffinity(pid: i32, set_size: usize, mask: *mut CpuSet) -> i32;
+}
+
+const CPU_SETSIZE: usize = 0x400;
+
 /// Iterator over the available CPUs
 pub struct CoreIds {
-    set: libc::cpu_set_t,
+    set: CpuSet,
     i: usize,
 }
 
@@ -40,7 +66,7 @@ impl CoreIds {
         let set = unsafe {
             let mut set = mem::zeroed();
 
-            if libc::sched_getaffinity(
+            if sched_getaffinity(
                 0, // Defaults to current thread
                 std::mem::size_of_val(&set),
                 &mut set,
@@ -61,8 +87,8 @@ impl Iterator for CoreIds {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while self.i < libc::CPU_SETSIZE as usize {
-            let available = unsafe { libc::CPU_ISSET(self.i, &self.set) };
+        while self.i < CPU_SETSIZE {
+            let available = cpu_is_set(self.i, &self.set);
             self.i += 1;
             if available {
                 return Some(CoreId(self.i - 1));
@@ -74,6 +100,6 @@ impl Iterator for CoreIds {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.i, Some(libc::CPU_SETSIZE as usize - self.i))
+        (self.i, Some(CPU_SETSIZE - self.i))
     }
 }

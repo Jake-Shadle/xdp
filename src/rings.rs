@@ -13,7 +13,7 @@ pub use tx::{TxRing, WakableTxRing};
 use crate::error;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::bindings::rings as bindings;
+use crate::libc::rings as libc;
 
 pub const XSK_RING_PROD_DEFAULT_NUM_DESCS: u32 = 2048;
 pub const XSK_RING_CONS_DEFAULT_NUM_DESCS: u32 = 2048;
@@ -174,8 +174,8 @@ struct XskRing<T: 'static> {
 fn map_ring<T>(
     socket: std::os::fd::RawFd,
     count: u32,
-    offset: bindings::RingPageOffsets,
-    offsets: &bindings::xdp_ring_offset,
+    offset: libc::RingPageOffsets,
+    offsets: &libc::xdp_ring_offset,
 ) -> std::io::Result<(memmap2::MmapMut, XskRing<T>)> {
     // SAFETY: This is called before actually binding the socket, and should be safe barring kernel bugs
     let mut mmap = unsafe {

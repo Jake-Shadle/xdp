@@ -1,8 +1,10 @@
 //! The [`FillRing`] is a producer ring that userspace can enqueue packets to be
 //! filled with data received on the NIC queue the ring is bound to
 
-use super::bindings::*;
-use crate::Umem;
+use crate::{
+    libc::{self, rings},
+    Umem,
+};
 
 /// The ring used to enqueue buffers for the kernel to fill in with packets
 /// received from a NIC
@@ -15,15 +17,18 @@ impl FillRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &xdp_mmap_offsets,
+        offsets: &rings::xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
-        let (_mmap, mut ring) =
-            super::map_ring(socket, cfg.fill_count, RingPageOffsets::Fill, &offsets.fill).map_err(
-                |inner| crate::socket::SocketError::RingMap {
-                    inner,
-                    ring: super::Ring::Fill,
-                },
-            )?;
+        let (_mmap, mut ring) = super::map_ring(
+            socket,
+            cfg.fill_count,
+            rings::RingPageOffsets::Fill,
+            &offsets.fill,
+        )
+        .map_err(|inner| crate::socket::SocketError::RingMap {
+            inner,
+            ring: super::Ring::Fill,
+        })?;
 
         ring.cached_consumed = cfg.fill_count;
         ring.cached_produced = 0;
@@ -78,7 +83,7 @@ impl WakableFillRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &xdp_mmap_offsets,
+        offsets: &rings::xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
         let inner = FillRing::new(socket, cfg, offsets)?;
 
@@ -104,11 +109,11 @@ impl WakableFillRing {
         if queued > 0 && wakeup {
             // SAFETY: This is safe, even if the socket descriptor is invalid.
             let ret = unsafe {
-                libc::recvfrom(
+                libc::socket::recvfrom(
                     self.socket,
                     std::ptr::null_mut(),
                     0,
-                    libc::MSG_DONTWAIT,
+                    libc::socket::MsgFlags::DONTWAIT,
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
                 )

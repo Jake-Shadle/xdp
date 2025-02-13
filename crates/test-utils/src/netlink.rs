@@ -107,6 +107,13 @@ pub struct Namespace {
     ns: &'static str,
 }
 
+const CLONE_NEWNET: i32 = 0x40000000;
+
+#[link(name = "c")]
+unsafe extern "C" {
+    safe fn setns(fd: i32, nstype: i32) -> i32;
+}
+
 impl Namespace {
     pub fn new(ns: &'static str) -> Self {
         Self {
@@ -120,7 +127,7 @@ impl Namespace {
         let path = format!("/var/run/netns/{}", self.ns);
         {
             let nsf = std::fs::File::open(&path).expect("failed to open");
-            if unsafe { libc::setns(nsf.as_raw_fd(), libc::CLONE_NEWNET) } != 0 {
+            if setns(nsf.as_raw_fd(), CLONE_NEWNET) != 0 {
                 panic!(
                     "failed to set network namespace {}",
                     std::io::Error::last_os_error()
@@ -144,7 +151,7 @@ pub struct NamespaceCtx<'ns> {
 
 impl Drop for NamespaceCtx<'_> {
     fn drop(&mut self) {
-        if unsafe { libc::setns(self.ns.original.as_raw_fd(), libc::CLONE_NEWNET) } != 0 {
+        if setns(self.ns.original.as_raw_fd(), CLONE_NEWNET) != 0 {
             eprintln!(
                 "failed to restore original namespace {}",
                 std::io::Error::last_os_error()

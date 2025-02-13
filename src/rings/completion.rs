@@ -1,8 +1,7 @@
 //! The [`CompletionRing`] is a consumer ring that userspace can dequeue packets
 //! that have been sent on the NIC queue the ring is bound to
 
-use super::bindings::*;
-use crate::Umem;
+use crate::{libc::rings, Umem};
 
 /// The ring used to dequeue buffers that the kernel has finished sending
 pub struct CompletionRing {
@@ -14,12 +13,12 @@ impl CompletionRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &xdp_mmap_offsets,
+        offsets: &rings::xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
         let (_mmap, mut ring) = super::map_ring(
             socket,
             cfg.completion_count,
-            RingPageOffsets::Completion,
+            rings::RingPageOffsets::Completion,
             &offsets.completion,
         )
         .map_err(|inner| crate::socket::SocketError::RingMap {

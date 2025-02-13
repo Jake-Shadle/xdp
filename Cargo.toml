@@ -9,13 +9,12 @@ homepage = "https://github.com/Jake-Shadle/xdp"
 repository = "https://github.com/Jake-Shadle/xdp"
 documentation = "https://docs.rs/xdp"
 exclude = ["*.sh", ".github", "deny.toml", "release.toml", "tests/**"]
+rust-version = "1.82.0"
 
 [badges]
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-# While we have some inline bindings, libc provides a bulk of them
-libc.workspace = true
 # Nicer memmapping, which is the core of the XDP ring buffers
 memmap2 = "0.9"
 # Netlink messaging, ideally this would just be inlined, but that can wait
@@ -42,7 +41,6 @@ members = [
 ]
 
 [workspace.dependencies]
-libc = "0.2"
 test-utils = { version = "0.1.0", path = "./crates/test-utils" }
 xdp = { version = "0.2.0", path = "." }
 etherparse = "0.17"

@@ -1,12 +1,14 @@
 //! The [`TxRing`] is a producer ring that userspace can enqueue packets to be
 //! sent by the NIC the ring is bound to
 
-use super::bindings::*;
-use crate::HeapSlab;
+use crate::{
+    libc::{self, rings},
+    HeapSlab,
+};
 
 /// The ring used to enqueue packets for the kernel to send
 pub struct TxRing {
-    ring: super::XskProducer<crate::bindings::xdp_desc>,
+    ring: super::XskProducer<libc::xdp::xdp_desc>,
     _mmap: memmap2::MmapMut,
 }
 
@@ -14,15 +16,18 @@ impl TxRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &xdp_mmap_offsets,
+        offsets: &rings::xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
-        let (_mmap, mut ring) =
-            super::map_ring(socket, cfg.tx_count, RingPageOffsets::Tx, &offsets.tx).map_err(
-                |inner| crate::socket::SocketError::RingMap {
-                    inner,
-                    ring: super::Ring::Tx,
-                },
-            )?;
+        let (_mmap, mut ring) = super::map_ring(
+            socket,
+            cfg.tx_count,
+            rings::RingPageOffsets::Tx,
+            &offsets.tx,
+        )
+        .map_err(|inner| crate::socket::SocketError::RingMap {
+            inner,
+            ring: super::Ring::Tx,
+        })?;
 
         ring.cached_produced = ring.producer.load(std::sync::atomic::Ordering::Relaxed);
         // cached_consumed is tx_count bigger than the real consumer pointer so
@@ -86,7 +91,7 @@ impl WakableTxRing {
     pub(crate) fn new(
         socket: std::os::fd::RawFd,
         cfg: &super::RingConfig,
-        offsets: &xdp_mmap_offsets,
+        offsets: &rings::xdp_mmap_offsets,
     ) -> Result<Self, crate::socket::SocketError> {
         let inner = TxRing::new(socket, cfg, offsets)?;
         Ok(Self { inner, socket })
@@ -110,11 +115,11 @@ impl WakableTxRing {
         if queued > 0 && wakeup {
             // SAFETY: This is safe, even if the socket descriptor is invalid.
             let ret = unsafe {
-                libc::sendto(
+                libc::socket::sendto(
                     self.socket,
                     std::ptr::null_mut(),
                     0,
-                    libc::MSG_DONTWAIT,
+                    libc::socket::MsgFlags::DONTWAIT,
                     std::ptr::null_mut(),
                     0,
                 )

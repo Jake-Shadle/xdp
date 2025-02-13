@@ -4,7 +4,7 @@
 pub mod csum;
 pub mod net_types;
 
-use crate::bindings;
+use crate::libc;
 use std::fmt;
 
 /// Errors that can occur when reading/writing [`Packet`] contents
@@ -88,13 +88,13 @@ pub unsafe trait Pod: Sized {
 }
 
 const fn tx_metadata_diff() -> i32 {
-    -(std::mem::size_of::<bindings::xsk_tx_metadata>() as i32)
+    -(std::mem::size_of::<libc::xsk_tx_metadata>() as i32)
 }
 
 /// Configures TX checksum offload when setting TX metadata via [`Packet::set_tx_metadata`]
 pub enum CsumOffload {
     /// Requests checksum offload
-    Request(bindings::xsk_tx_request),
+    Request(libc::xsk_tx_request),
     /// Offload is not requested
     None,
 }
@@ -155,8 +155,8 @@ impl Packet {
         unsafe {
             Self {
                 data: std::mem::transmute::<&mut [u8], &'static mut [u8]>(buf),
-                head: bindings::XDP_PACKET_HEADROOM as _,
-                tail: bindings::XDP_PACKET_HEADROOM as _,
+                head: libc::XDP_PACKET_HEADROOM as _,
+                tail: libc::XDP_PACKET_HEADROOM as _,
                 base: std::ptr::null(),
                 options: 0,
             }
@@ -194,7 +194,7 @@ impl Packet {
     /// this packet, until this returns fals
     #[inline]
     pub fn is_continued(&self) -> bool {
-        (self.options & bindings::XdpFlags::XDP_PKT_CONTD as u32) != 0
+        (self.options & libc::XdpFlags::XDP_PKT_CONTD as u32) != 0
     }
 
     /// Checks if the NIC this packet is being sent on supports tx checksum offload
@@ -204,7 +204,7 @@ impl Packet {
     /// offload or not
     #[inline]
     pub fn can_offload_checksum(&self) -> bool {
-        (self.options & bindings::InternalXdpFlags::SupportsChecksumOffload as u32) != 0
+        (self.options & libc::InternalXdpFlags::SupportsChecksumOffload as u32) != 0
     }
 
     /// Adjust the head of the packet up or down by `diff` bytes
@@ -455,21 +455,21 @@ impl Packet {
 
         self.adjust_head(tx_metadata_diff())?;
         {
-            let tx_meta = self.item_at_offset_mut::<bindings::xsk_tx_metadata>(0)?;
+            let tx_meta = self.item_at_offset_mut::<libc::xsk_tx_metadata>(0)?;
             tx_meta.flags = 0;
             tx_meta.offload.completion = 0;
 
             if let CsumOffload::Request(csum_req) = csum {
-                tx_meta.flags |= bindings::XDP_TXMD_FLAGS_CHECKSUM;
+                tx_meta.flags |= libc::XDP_TXMD_FLAGS_CHECKSUM;
                 tx_meta.offload.request = csum_req;
             }
 
             if request_timestamp {
-                tx_meta.flags |= bindings::XDP_TXMD_FLAGS_TIMESTAMP;
+                tx_meta.flags |= libc::XDP_TXMD_FLAGS_TIMESTAMP;
             }
         }
         self.adjust_head(-tx_metadata_diff())?;
-        self.options |= bindings::XdpFlags::XDP_TX_METADATA as u32;
+        self.options |= libc::XdpFlags::XDP_TX_METADATA as u32;
 
         Ok(())
     }
@@ -482,11 +482,9 @@ impl std::ops::Deref for Packet {
     }
 }
 
-use crate::bindings::xdp_desc;
-
-impl From<Packet> for xdp_desc {
+impl From<Packet> for libc::xdp::xdp_desc {
     fn from(packet: Packet) -> Self {
-        xdp_desc {
+        libc::xdp::xdp_desc {
             addr: unsafe {
                 packet
                     .data
@@ -495,7 +493,7 @@ impl From<Packet> for xdp_desc {
                     .offset_from(packet.base) as _
             },
             len: (packet.tail - packet.head) as _,
-            options: packet.options & !(bindings::InternalXdpFlags::Mask as u32),
+            options: packet.options & !(libc::InternalXdpFlags::Mask as u32),
         }
     }
 }

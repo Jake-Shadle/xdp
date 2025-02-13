@@ -754,7 +754,6 @@ dependencies = [
  "aya",
  "env_logger",
  "etherparse",
- "libc",
  "object",
  "xdp",
 ]
@@ -993,7 +992,6 @@ dependencies = [
  "criterion",
  "etherparse",
  "internet-checksum",
- "libc",
  "memmap2",
  "neli",
 ]

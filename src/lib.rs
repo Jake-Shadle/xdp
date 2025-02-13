@@ -25,7 +25,7 @@ pub mod affinity;
 pub mod error;
 pub mod packet;
 pub use packet::Packet;
-pub mod bindings;
+pub mod libc;
 pub mod nic;
 mod rings;
 pub mod socket;

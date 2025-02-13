@@ -1,7 +1,7 @@
 //! Initialization and polling of an [`AF_XDP`](https://en.wikipedia.org/wiki/Express_Data_Path#AF_XDP) socket
 
 use crate::{
-    bindings::{self, InternalXdpFlags},
+    libc::{self, socket, xdp, InternalXdpFlags},
     rings,
 };
 use std::{fmt, io::Error, os::fd::AsRawFd as _};
@@ -64,17 +64,17 @@ pub struct XdpSocketBuilder {
 #[repr(i32)]
 pub enum OptName {
     /// Configures the [`crate::Umem`] shared between the kernel and userspace
-    UmemRegion = libc::XDP_UMEM_REG,
+    UmemRegion = libc::xdp::SockOpts::UmemReg,
     /// Configures the length of the [`rings::FillRing`]
-    UmemFillRing = libc::XDP_UMEM_FILL_RING,
+    UmemFillRing = libc::xdp::SockOpts::UmemFillRing,
     /// Configures the length of the [`rings::CompletionRing`]
-    UmemCompletionRing = libc::XDP_UMEM_COMPLETION_RING,
+    UmemCompletionRing = libc::xdp::SockOpts::UmemCompletionRing,
     /// Configures the length of the [`rings::RxRing`]
-    RxRing = libc::XDP_RX_RING,
+    RxRing = libc::xdp::SockOpts::RxRing,
     /// Configures the length of the [`rings::TxRing`]
-    TxRing = libc::XDP_TX_RING,
+    TxRing = libc::xdp::SockOpts::TxRing,
     /// Used to retrieve the ring offsets configured by the kernel
-    XdpMmapOffsets = libc::XDP_MMAP_OFFSETS,
+    XdpMmapOffsets = libc::xdp::SockOpts::MmapOffets,
     // PreferBusyPoll = 69, // SO_PREFER_BUSY_POLL
     // BusyPoll = libc::SO_BUSY_POLL,
     // BusyPollBudget = 70, // SO_BUSY_POLL_BUDGET
@@ -97,8 +97,8 @@ impl BindFlags {
     /// it.
     #[inline]
     pub fn force_zerocopy(&mut self) {
-        self.0 |= libc::XDP_ZEROCOPY;
-        self.0 &= !libc::XDP_COPY;
+        self.0 |= xdp::BindFlags::ZeroCopy;
+        self.0 &= !xdp::BindFlags::Copy;
     }
 
     /// Forces copy mode.
@@ -110,13 +110,13 @@ impl BindFlags {
     /// Copy mode works regardless of NIC/driver
     #[inline]
     pub fn force_copy(&mut self) {
-        self.0 |= libc::XDP_COPY;
-        self.0 &= !libc::XDP_ZEROCOPY;
+        self.0 |= xdp::BindFlags::Copy;
+        self.0 &= !xdp::BindFlags::ZeroCopy;
     }
 
     #[inline]
     fn needs_wakeup(&mut self) {
-        self.0 |= libc::XDP_USE_NEED_WAKEUP;
+        self.0 |= xdp::BindFlags::NeedWakeup;
     }
 }
 
@@ -125,8 +125,11 @@ impl XdpSocketBuilder {
     pub fn new() -> Result<Self, SocketError> {
         use std::os::fd::FromRawFd;
 
-        // SAFETY: safe, barring kernel bugs
-        let socket = unsafe { libc::socket(libc::AF_XDP, libc::SOCK_RAW | libc::SOCK_CLOEXEC, 0) };
+        let socket = socket::socket(
+            socket::AddressFamily::AF_XDP,
+            socket::Kind::SOCK_RAW | socket::Kind::SOCK_CLOEXEC,
+            socket::Protocol::NONE,
+        );
         if socket < 0 {
             return Err(SocketError::SocketCreation(Error::last_os_error()));
         }
@@ -218,46 +221,30 @@ impl XdpSocketBuilder {
         &mut self,
         umem: &crate::Umem,
         cfg: &rings::RingConfig,
-    ) -> Result<bindings::rings::xdp_mmap_offsets, SocketError> {
-        #[repr(C)]
-        struct XdpUmemReg {
-            /// Base pointer of the packet mmap
-            addr: u64,
-            /// Length of the packet mmap in bytes
-            len: u64,
-            /// Size of each individual chunk/packet/packet
-            chunk_size: u32,
-            /// Size of the headroom the packet is offset from the beginning.
-            /// Note this does not include the headroom that is already reserved by the kernel
-            headroom: u32,
-            flags: u32,
-            /// Length of the TX metadata, if any.
-            tx_metadata_len: u32,
-        }
-
+    ) -> Result<libc::rings::xdp_mmap_offsets, SocketError> {
         let mut flags = 0;
         if !umem.frame_size.is_power_of_two() {
-            flags |= libc::XDP_UMEM_UNALIGNED_CHUNK_FLAG;
+            flags |= xdp::UmemFlags::UnalignedChunkFlag;
         }
 
         if umem.options & InternalXdpFlags::SupportsChecksumOffload as u32 != 0 {
             // This value is only available in very recent ~6.11 kernels and was introduced
             // for those who didn't zero initialize xdp_umem_reg
-            flags |= libc::XDP_UMEM_TX_METADATA_LEN;
+            flags |= xdp::UmemFlags::TxMetadataLen;
 
             if umem.options & InternalXdpFlags::SoftwareOffload as u32 != 0 {
-                flags |= libc::XDP_UMEM_TX_SW_CSUM;
+                flags |= xdp::UmemFlags::TxSwCsum;
             }
         }
 
-        let umem_reg = XdpUmemReg {
+        let umem_reg = xdp::XdpUmemReg {
             addr: umem.mmap.as_ptr() as _,
             len: umem.mmap.len() as _,
             chunk_size: umem.frame_size as _,
             headroom: umem.head_room as _,
             flags,
             tx_metadata_len: if umem.options != 0 {
-                std::mem::size_of::<crate::bindings::xsk_tx_metadata>() as _
+                std::mem::size_of::<libc::xsk_tx_metadata>() as _
             } else {
                 0
             },
@@ -279,7 +266,7 @@ impl XdpSocketBuilder {
         }
 
         // SAFETY: xdp_mmap_offsets is POD
-        let mut offsets = unsafe { std::mem::zeroed::<bindings::rings::xdp_mmap_offsets>() };
+        let mut offsets = unsafe { std::mem::zeroed::<libc::rings::xdp_mmap_offsets>() };
 
         let expected_size = std::mem::size_of_val(&offsets) as u32;
         let mut size = expected_size;
@@ -289,11 +276,11 @@ impl XdpSocketBuilder {
         // Retrieve the mapping offsets
         // SAFETY: safe barring kernel bugs
         if unsafe {
-            libc::getsockopt(
+            libc::socket::getsockopt(
                 socket,
-                libc::SOL_XDP,
+                libc::socket::Level::XDP,
                 OptName::XdpMmapOffsets as _,
-                (&mut offsets as *mut bindings::rings::xdp_mmap_offsets).cast(),
+                (&mut offsets as *mut libc::rings::xdp_mmap_offsets).cast(),
                 &mut size,
             )
         } != 0
@@ -325,8 +312,8 @@ impl XdpSocketBuilder {
         queue_id: u32,
         bind_flags: BindFlags,
     ) -> Result<XdpSocket, SocketError> {
-        let xdp_sockaddr = libc::sockaddr_xdp {
-            sxdp_family: libc::PF_XDP as _,
+        let xdp_sockaddr = xdp::sockaddr_xdp {
+            sxdp_family: socket::AddressFamily::AF_XDP as _,
             sxdp_flags: bind_flags.0,
             sxdp_ifindex: interface_index.0,
             sxdp_queue_id: queue_id,
@@ -334,9 +321,9 @@ impl XdpSocketBuilder {
         };
 
         if unsafe {
-            libc::bind(
+            socket::bind(
                 self.sock.as_raw_fd(),
-                (&xdp_sockaddr as *const libc::sockaddr_xdp).cast(),
+                (&xdp_sockaddr as *const xdp::sockaddr_xdp).cast(),
                 std::mem::size_of_val(&xdp_sockaddr) as _,
             )
         } != 0
@@ -359,9 +346,9 @@ impl XdpSocketBuilder {
         // };
 
         if unsafe {
-            libc::setsockopt(
+            libc::socket::setsockopt(
                 self.sock.as_raw_fd(),
-                libc::SOL_XDP,
+                socket::Level::XDP,
                 name as i32,
                 (val as *const T).cast(),
                 std::mem::size_of_val(val) as _,
@@ -417,26 +404,29 @@ impl XdpSocket {
     /// Polls both read and write
     #[inline]
     pub fn poll(&self, timeout: PollTimeout) -> std::io::Result<bool> {
-        self.poll_inner(libc::POLLIN | libc::POLLOUT, timeout)
+        self.poll_inner(
+            socket::PollEvents::POLLIN | socket::PollEvents::POLLOUT,
+            timeout,
+        )
     }
 
     /// Polls read
     #[inline]
     pub fn poll_read(&self, timeout: PollTimeout) -> std::io::Result<bool> {
-        self.poll_inner(libc::POLLIN, timeout)
+        self.poll_inner(socket::PollEvents::POLLIN, timeout)
     }
 
     /// Polls write
     #[inline]
     pub fn poll_write(&self, timeout: PollTimeout) -> std::io::Result<bool> {
-        self.poll_inner(libc::POLLOUT, timeout)
+        self.poll_inner(socket::PollEvents::POLLOUT, timeout)
     }
 
     #[inline]
     fn poll_inner(&self, events: i16, timeout: PollTimeout) -> std::io::Result<bool> {
         let ret = unsafe {
-            libc::poll(
-                &mut libc::pollfd {
+            socket::poll(
+                &mut socket::pollfd {
                     fd: self.sock.as_raw_fd(),
                     events,
                     revents: 0,

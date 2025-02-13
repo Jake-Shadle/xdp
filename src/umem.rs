@@ -1,8 +1,8 @@
 //! [`Umem`] creation and operation
 
 use crate::{
-    bindings::{self, xdp_desc, InternalXdpFlags},
     error::{ConfigError, Error},
+    libc::{self, xdp::xdp_desc, InternalXdpFlags},
     Packet,
 };
 use std::collections::VecDeque;
@@ -149,7 +149,7 @@ impl Umem {
             let addr = self
                 .mmap
                 .as_ptr()
-                .byte_offset((addr + bindings::XDP_PACKET_HEADROOM) as _)
+                .byte_offset((addr + libc::XDP_PACKET_HEADROOM) as _)
                 as *mut u8;
             let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
 
@@ -196,15 +196,15 @@ impl Umem {
     #[inline]
     pub(crate) fn free_get_timestamp(&mut self, address: u64) -> u64 {
         let align_offset = address % self.frame_size as u64;
-        let timestamp = if align_offset >= std::mem::size_of::<bindings::xsk_tx_metadata>() as u64 {
+        let timestamp = if align_offset >= std::mem::size_of::<libc::xsk_tx_metadata>() as u64 {
             unsafe {
                 let tx_meta = &*(self
                     .mmap
                     .as_ptr()
                     .byte_offset(
-                        (address - std::mem::size_of::<bindings::xsk_tx_metadata>() as u64) as _,
+                        (address - std::mem::size_of::<libc::xsk_tx_metadata>() as u64) as _,
                     )
-                    .cast::<bindings::xsk_tx_metadata>());
+                    .cast::<libc::xsk_tx_metadata>());
                 tx_meta.offload.completion
             }
         } else {
@@ -286,7 +286,7 @@ impl UmemCfgBuilder {
         let head_room = within_range!(
             self,
             head_room,
-            0..(frame_size - bindings::XDP_PACKET_HEADROOM as u32) as _
+            0..(frame_size - libc::XDP_PACKET_HEADROOM as u32) as _
         );
         let frame_count = within_range!(self, frame_count, 1..u32::MAX as _);
 
