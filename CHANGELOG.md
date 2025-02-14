@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#9](https://github.com/Jake-Shadle/xdp/pull/9) removed neli in favor of a simpler inline implementation, resolving [#1](https://github.com/Jake-Shadle/xdp/issues/1).
+
 ## [0.2.0] - 2025-01-30
 ### Fixed
 - [PR#4](https://github.com/Jake-Shadle/xdp/pull/4) fixed support for [TX checksum offload](https://docs.kernel.org/networking/xsk-tx-metadata.html).
