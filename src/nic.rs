@@ -698,46 +698,6 @@ mod test {
     fn gets_features() {
         let nic = super::InterfaceIter::new().unwrap().next().unwrap();
 
-        // let mut socket = neli::socket::NlSocketHandle::connect(
-        //     neli::consts::socket::NlFamily::Generic,
-        //     None,
-        //     &[],
-        // )
-        // .unwrap();
-
-        // //socket.resolve_genl_family(family_name)
-
-        // let mut attrs = neli::types::GenlBuffer::<_, neli::types::Buffer>::new();
-        // attrs.push(
-        //     neli::genl::Nlattr::new(
-        //         false,
-        //         false,
-        //         neli::consts::genl::CtrlAttr::FamilyName,
-        //         "netdev",
-        //     )
-        //     .unwrap(),
-        // );
-
-        // let genlhdr = neli::genl::Genlmsghdr::new(neli::consts::genl::CtrlCmd::Getfamily, 2, attrs);
-        // let nlhdr = neli::nl::Nlmsghdr::new(
-        //     None,
-        //     neli::consts::nl::GenlId::Ctrl,
-        //     neli::consts::nl::NlmFFlags::new(&[
-        //         neli::consts::nl::NlmF::Request,
-        //         neli::consts::nl::NlmF::Ack,
-        //     ]),
-        //     None,
-        //     None,
-        //     neli::nl::NlPayload::Payload(genlhdr),
-        // );
-
-        // use neli::ToBytes;
-        // let buf = Vec::new();
-        // let mut cursor = std::io::Cursor::new(buf);
-        // nlhdr.to_bytes(&mut cursor).unwrap();
-
-        // //dbg!(cursor.into_inner());
-
-        panic!("{:#?}", nic.query_capabilities().unwrap());
+        dbg!(nic.query_capabilities().unwrap());
     }
 }

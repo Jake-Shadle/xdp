@@ -22,7 +22,6 @@ deny = [
 skip = [
 ]
 skip-tree = [
-    { crate = "neli@0.6.5", reason = "temporary dependency until it is replaced https://github.com/Jake-Shadle/xdp/issues/1" },
 ]
 
 [sources]
@@ -35,9 +34,6 @@ confidence-threshold = 0.93
 allow = [
     "Apache-2.0",
     "MIT",
-    "BSD-3-Clause",
-    "Unicode-3.0",
-    "Zlib",
 ]
 exceptions = [
 ]

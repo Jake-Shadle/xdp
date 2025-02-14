@@ -17,8 +17,6 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 # Nicer memmapping, which is the core of the XDP ring buffers
 memmap2 = "0.9"
-# Netlink messaging, ideally this would just be inlined, but that can wait
-neli = "0.6"
 
 [dev-dependencies]
 # Generates test packets
