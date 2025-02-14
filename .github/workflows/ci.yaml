@@ -47,6 +47,17 @@ jobs:
       - name: cargo test
         run: cargo test
 
+  docs:
+    runs-on: ubuntu-22.04
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fetch
+      - name: cargo doc check
+        run: cargo doc
+
   deny-check:
     name: cargo-deny
     runs-on: ubuntu-22.04
@@ -66,6 +77,6 @@ jobs:
 
   test_success:
     runs-on: ubuntu-22.04
-    needs: [lint, test, publish-check]
+    needs: [lint, test, docs, publish-check]
     steps:
       - run: echo "All test jobs passed"
