@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 ### Changed
-- [PR#9](https://github.com/Jake-Shadle/xdp/pull/9) removed neli in favor of a simpler inline implementation, resolving [#1](https://github.com/Jake-Shadle/xdp/issues/1).
+- [PR#9](https://github.com/Jake-Shadle/xdp/pull/9) removed `neli` in favor of a simpler inline implementation, resolving [#1](https://github.com/Jake-Shadle/xdp/issues/1).
+- [PR#10](https://github.com/Jake-Shadle/xdp/pull/10) removed `memmap2` in favor of a simpler inline implementation, resolving [#8](https://github.com/Jake-Shadle/xdp/issues/8).
 
 ## [0.2.0] - 2025-01-30
 ### Fixed
