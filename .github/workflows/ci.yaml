@@ -47,6 +47,19 @@ jobs:
       - name: cargo test
         run: cargo test
 
+  integ-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fetch
+      - name: cargo test build
+        working-directory: ./crates/integ
+        run: cargo build --tests
+      - name: cargo test
+        working-directory: ./crates/integ
+        run: cargo test
+
   docs:
     runs-on: ubuntu-22.04
     env:
@@ -77,6 +90,6 @@ jobs:
 
   test_success:
     runs-on: ubuntu-22.04
-    needs: [lint, test, docs, publish-check]
+    needs: [lint, test, integ-test, docs, publish-check]
     steps:
       - run: echo "All test jobs passed"
