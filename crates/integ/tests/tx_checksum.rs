@@ -15,8 +15,8 @@ fn offloads_tx_checksum() {
             frame_size: FrameSize::TwoK,
             head_room: 20,
             frame_count: 64,
-            tx_metadata: true,
-            software_checksum: true,
+            tx_metadata: false,
+            software_checksum: false,
         }
         .build()
         .expect("invalid umem cfg"),
