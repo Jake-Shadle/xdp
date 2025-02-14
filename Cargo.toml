@@ -14,20 +14,6 @@ rust-version = "1.82.0"
 [badges]
 maintenance = { status = "actively-developed" }
 
-
-[dev-dependencies]
-# Generates test packets
-etherparse.workspace = true
-# Additional checksum implementation for validation
-internet-checksum = "0.2"
-#test-utils.workspace = true
-# Benchmarking
-criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "csum"
-harness = false
-
 [workspace]
 members = [
     ".",
