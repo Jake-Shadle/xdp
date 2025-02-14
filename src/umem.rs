@@ -147,7 +147,7 @@ impl Umem {
             let addr = self
                 .mmap
                 .as_ptr()
-                .byte_offset((addr + libc::XDP_PACKET_HEADROOM) as _)
+                .byte_offset((addr + libc::xdp::XDP_PACKET_HEADROOM) as _)
                 as *mut u8;
             let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
 
@@ -193,16 +193,16 @@ impl Umem {
     /// NIC recorded the send completed
     #[inline]
     pub(crate) fn free_get_timestamp(&mut self, address: u64) -> u64 {
+        use libc::xdp::xsk_tx_metadata;
+
         let align_offset = address % self.frame_size as u64;
-        let timestamp = if align_offset >= std::mem::size_of::<libc::xsk_tx_metadata>() as u64 {
+        let timestamp = if align_offset >= std::mem::size_of::<xsk_tx_metadata>() as u64 {
             unsafe {
                 let tx_meta = &*(self
                     .mmap
                     .as_ptr()
-                    .byte_offset(
-                        (address - std::mem::size_of::<libc::xsk_tx_metadata>() as u64) as _,
-                    )
-                    .cast::<libc::xsk_tx_metadata>());
+                    .byte_offset((address - std::mem::size_of::<xsk_tx_metadata>() as u64) as _)
+                    .cast::<xsk_tx_metadata>());
                 tx_meta.offload.completion
             }
         } else {
@@ -257,8 +257,12 @@ pub struct UmemCfgBuilder {
     /// that either request a checksum be calculated by the NIC, and/or that the
     /// transmission timestamp is set before being added to the completion queue
     pub tx_metadata: bool,
-    /// For testing purposes only, enables the `XDP_UMEM_TX_SW_CSUM` flag so
-    /// the checksum is calculated by the driver in software
+    /// For testing purposes only, enables the
+    /// [`libc::xdp::UmemFlags::XDP_UMEM_TX_SW_CSUM`] flag so the checksum is
+    /// calculated by the driver in software
+    ///
+    /// Note that [`Self::tx_metadata`] must also be set to true when using
+    /// this option
     #[cfg(debug_assertions)]
     pub software_checksum: bool,
 }
@@ -284,7 +288,7 @@ impl UmemCfgBuilder {
         let head_room = within_range!(
             self,
             head_room,
-            0..(frame_size - libc::XDP_PACKET_HEADROOM as u32) as _
+            0..(frame_size - libc::xdp::XDP_PACKET_HEADROOM as u32) as _
         );
         let frame_count = within_range!(self, frame_count, 1..u32::MAX as _);
 

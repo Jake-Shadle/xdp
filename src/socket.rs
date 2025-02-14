@@ -64,17 +64,17 @@ pub struct XdpSocketBuilder {
 #[repr(i32)]
 pub enum OptName {
     /// Configures the [`crate::Umem`] shared between the kernel and userspace
-    UmemRegion = libc::xdp::SockOpts::UmemReg,
+    UmemRegion = libc::xdp::SockOpts::XDP_UMEM_REG,
     /// Configures the length of the [`rings::FillRing`]
-    UmemFillRing = libc::xdp::SockOpts::UmemFillRing,
+    UmemFillRing = libc::xdp::SockOpts::XDP_UMEM_FILL_RING,
     /// Configures the length of the [`rings::CompletionRing`]
-    UmemCompletionRing = libc::xdp::SockOpts::UmemCompletionRing,
+    UmemCompletionRing = libc::xdp::SockOpts::XDP_UMEM_COMPLETION_RING,
     /// Configures the length of the [`rings::RxRing`]
-    RxRing = libc::xdp::SockOpts::RxRing,
+    RxRing = libc::xdp::SockOpts::XDP_RX_RING,
     /// Configures the length of the [`rings::TxRing`]
-    TxRing = libc::xdp::SockOpts::TxRing,
+    TxRing = libc::xdp::SockOpts::XDP_TX_RING,
     /// Used to retrieve the ring offsets configured by the kernel
-    XdpMmapOffsets = libc::xdp::SockOpts::MmapOffets,
+    XdpMmapOffsets = libc::xdp::SockOpts::XDP_MMAP_OFFSETS,
     // PreferBusyPoll = 69, // SO_PREFER_BUSY_POLL
     // BusyPoll = libc::SO_BUSY_POLL,
     // BusyPollBudget = 70, // SO_BUSY_POLL_BUDGET
@@ -83,7 +83,7 @@ pub enum OptName {
 /// The [`libc::sockaddr::sxdp_flags`](https://docs.rs/libc/latest/libc/struct.sockaddr_xdp.html#structfield.sxdp_flags)
 /// to use when binding the `AF_XDP` socket
 #[derive(Copy, Clone)]
-pub struct BindFlags(u16);
+pub struct BindFlags(xdp::BindFlags::Enum);
 
 impl BindFlags {
     fn new() -> Self {
@@ -97,8 +97,8 @@ impl BindFlags {
     /// it.
     #[inline]
     pub fn force_zerocopy(&mut self) {
-        self.0 |= xdp::BindFlags::ZeroCopy;
-        self.0 &= !xdp::BindFlags::Copy;
+        self.0 |= xdp::BindFlags::XDP_ZEROCOPY;
+        self.0 &= !xdp::BindFlags::XDP_COPY;
     }
 
     /// Forces copy mode.
@@ -110,13 +110,13 @@ impl BindFlags {
     /// Copy mode works regardless of NIC/driver
     #[inline]
     pub fn force_copy(&mut self) {
-        self.0 |= xdp::BindFlags::Copy;
-        self.0 &= !xdp::BindFlags::ZeroCopy;
+        self.0 |= xdp::BindFlags::XDP_COPY;
+        self.0 &= !xdp::BindFlags::XDP_ZEROCOPY;
     }
 
     #[inline]
     fn needs_wakeup(&mut self) {
-        self.0 |= xdp::BindFlags::NeedWakeup;
+        self.0 |= xdp::BindFlags::XDP_USE_NEED_WAKEUP;
     }
 }
 
@@ -224,16 +224,16 @@ impl XdpSocketBuilder {
     ) -> Result<libc::rings::xdp_mmap_offsets, SocketError> {
         let mut flags = 0;
         if !umem.frame_size.is_power_of_two() {
-            flags |= xdp::UmemFlags::UnalignedChunkFlag;
+            flags |= xdp::UmemFlags::XDP_UMEM_UNALIGNED_CHUNK_FLAG;
         }
 
         if umem.options & InternalXdpFlags::SupportsChecksumOffload as u32 != 0 {
             // This value is only available in very recent ~6.11 kernels and was introduced
             // for those who didn't zero initialize xdp_umem_reg
-            flags |= xdp::UmemFlags::TxMetadataLen;
+            flags |= xdp::UmemFlags::XDP_UMEM_TX_METADATA_LEN;
 
             if umem.options & InternalXdpFlags::SoftwareOffload as u32 != 0 {
-                flags |= xdp::UmemFlags::TxSwCsum;
+                flags |= xdp::UmemFlags::XDP_UMEM_TX_SW_CSUM;
             }
         }
 
@@ -244,7 +244,7 @@ impl XdpSocketBuilder {
             headroom: umem.head_room as _,
             flags,
             tx_metadata_len: if umem.options != 0 {
-                std::mem::size_of::<libc::xsk_tx_metadata>() as _
+                std::mem::size_of::<libc::xdp::xsk_tx_metadata>() as _
             } else {
                 0
             },

@@ -15,26 +15,6 @@
 
 use std::{ffi::c_void, os::fd::RawFd};
 
-/// The size in bytes of the [headroom](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/include/uapi/linux/bpf.h#L6432) reserved by the kernel for each xdp packet
-pub const XDP_PACKET_HEADROOM: u64 = 256;
-/// The default packet size used by [libxdp](https://github.com/xdp-project/xdp-tools/blob/3b199c0c185d4603406e6324ca5783b157c0e492/headers/xdp/xsk.h#L194)
-pub const XSK_UMEM_DEFAULT_FRAME_SIZE: u32 = 4096;
-
-/// Flags that can be present in [`xdp_desc::options`]
-#[derive(Copy, Clone)]
-#[repr(u32)]
-pub enum XdpFlags {
-    /// Flag indicating that the packet continues with the buffer pointed out by the
-    /// next packet in the ring.
-    ///
-    /// The end of the packet is signalled by setting this bit to zero. For single
-    /// buffer packets, every descriptor has 'options' set to 0 and this maintains
-    /// backward compatibility.
-    XDP_PKT_CONTD = 1 << 0,
-    /// TX packet carries valid metadata.
-    XDP_TX_METADATA = 1 << 1,
-}
-
 /// Internal flags to enable TX offload features if they were enabled at
 /// socket creation
 #[derive(Copy, Clone)]
@@ -49,48 +29,6 @@ pub enum InternalXdpFlags {
     /// Mask of valid flags
     Mask = 0xf0000000,
 }
-
-/// Request transmit timestamp.
-///
-/// Upon completion, fills [`xsk_tx_offload::completion`]
-pub const XDP_TXMD_FLAGS_TIMESTAMP: u64 = 1;
-
-/// Request transmit checksum offload.
-pub const XDP_TXMD_FLAGS_CHECKSUM: u64 = 2;
-
-/// Checksum offload data that must be filled by userspace when requesting [`XDP_TXMD_FLAGS_CHECKSUM`]
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct xsk_tx_request {
-    /// Offset from [`xdp_desc::addr`] where checksumming should start.
-    pub csum_start: u16,
-    /// Offset from [`Self::csum_start`] where checksum should be stored.
-    pub csum_offset: u16,
-}
-
-/// The block of data filled by userspace when using [`XDP_TXMD_FLAGS_CHECKSUM`]
-/// and filled by the kernel when using [`XDP_TXMD_FLAGS_TIMESTAMP`]
-#[repr(C)]
-pub union xsk_tx_offload {
-    /// The checksum offload request
-    pub request: xsk_tx_request,
-    /// The timestamp the TX request was emitted
-    pub completion: u64,
-}
-
-/// `AF_XDP` TX offloads request.
-pub struct xsk_tx_metadata {
-    /// [`XDP_TXMD_FLAGS_TIMESTAMP`] and/or [`XDP_TXMD_FLAGS_CHECKSUM`]
-    pub flags: u64,
-    /// When using [`XDP_TXMD_FLAGS_TIMESTAMP`] the [`xsk_tx_offload::request`]
-    /// field must be set.
-    ///
-    /// When using [`XDP_TXMD_FLAGS_CHECKSUM`], the [`xsk_tx_offload::completion`]
-    /// field will be set when the kernel gives back the packet in the completion ring
-    pub offload: xsk_tx_offload,
-}
-
-unsafe impl crate::packet::Pod for xsk_tx_metadata {}
 
 /// The bindings specific to the various rings used by `AF_XDP` sockets.
 ///
@@ -144,20 +82,25 @@ pub mod rings {
 
 /// xdp specific bindings
 pub mod xdp {
+    /// The size in bytes of the [headroom](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/include/uapi/linux/bpf.h#L6432) reserved by the kernel for each xdp packet
+    pub const XDP_PACKET_HEADROOM: u64 = 256;
+    /// The default packet size used by [libxdp](https://github.com/xdp-project/xdp-tools/blob/3b199c0c185d4603406e6324ca5783b157c0e492/headers/xdp/xsk.h#L194)
+    pub const XSK_UMEM_DEFAULT_FRAME_SIZE: u32 = 4096;
+
     /// The various `SOL_XDP` socket options.
     ///
     /// Defined in `<include/uapi/linux/if_xdp.h>`
     pub(crate) mod SockOpts {
         pub type Enum = i32;
 
-        pub const MmapOffets: Enum = 1;
-        pub const RxRing: Enum = 2;
-        pub const TxRing: Enum = 3;
-        pub const UmemReg: Enum = 4;
-        pub const UmemFillRing: Enum = 5;
-        pub const UmemCompletionRing: Enum = 6;
-        //pub const Statistics: Enum = 7;
-        //pub const Options: Enum = 8;
+        pub const XDP_MMAP_OFFSETS: Enum = 1;
+        pub const XDP_RX_RING: Enum = 2;
+        pub const XDP_TX_RING: Enum = 3;
+        pub const XDP_UMEM_REG: Enum = 4;
+        pub const XDP_UMEM_FILL_RING: Enum = 5;
+        pub const XDP_UMEM_COMPLETION_RING: Enum = 6;
+        //pub const XDP_STATISTICS: Enum = 7;
+        //pub const XDP_OPTIONS: Enum = 8;
     }
 
     /// The various `AF_XDP` bind flags.
@@ -168,14 +111,16 @@ pub mod xdp {
         pub type Enum = u16;
 
         /// Umem is shared between multiple processes/threads
-        pub const SharedUmem: Enum = 1 << 0;
-        /// Force copy mode, even if zero-copy is supported. By default if neither
-        /// copy nor zero-copy is specified, zero-copy will be used if supported,
-        /// falling back to copy which is always supported
-        pub const Copy: Enum = 1 << 1;
-        /// Force zero-copy mode. The socket will fail to bind if zero-copy mode
-        /// is not supported.
-        pub const ZeroCopy: Enum = 1 << 2;
+        pub const XDP_SHARED_UMEM: Enum = 1 << 0;
+        /// Force copy mode, even if zero-copy is supported.
+        ///
+        /// By default if neither copy nor zero-copy is specified, zero-copy will
+        /// be used if supported, falling back to copy which is always supported
+        pub const XDP_COPY: Enum = 1 << 1;
+        /// Force zero-copy mode.
+        ///
+        /// The socket will fail to bind if zero-copy mode is not supported.
+        pub const XDP_ZEROCOPY: Enum = 1 << 2;
         /// If this option is set, the driver might go sleep and in that case
         /// the `XDP_RING_NEED_WAKEUP` flag in the fill and/or Tx rings will be
         /// set.
@@ -187,12 +132,13 @@ pub mod xdp {
         /// If you are running the driver and the application on the same core,
         /// you should use this option so that the kernel will yield to the user
         /// space application.
-        pub const NeedWakeup: Enum = 1 << 3;
+        pub const XDP_USE_NEED_WAKEUP: Enum = 1 << 3;
         /// By setting this option, userspace application indicates that it can
-        /// handle multiple descriptors per packet thus enabling `AF_XDP` to split
-        /// multi-buffer XDP frames into multiple Rx descriptors. Without this set
-        /// such frames will be dropped.
-        pub const UseSG: Enum = 1 << 4;
+        /// handle multiple descriptors per packet.
+        ///
+        /// This enables `AF_XDP` to split multi-buffer XDP frames into multiple
+        /// Rx descriptors. Without this set such frames will be dropped.
+        pub const XDP_USE_SG: Enum = 1 << 4;
     }
 
     /// An RX/TX packet descriptor describing an area of a [`Umem`](crate::umem::Umem)
@@ -212,26 +158,94 @@ pub mod xdp {
         pub len: u32,
         /// The options for the packet
         ///
-        /// For frames being received, this will either be 0 or [`XdpFlags::XDP_PKT_CONTD`]
+        /// For frames being received, this will either be 0 or [`XdpPktOptions::XDP_PKT_CONTD`]
         ///
-        /// For frames being sent, this can additionally be [`XdpFlags::XDP_TX_METADATA`] to
+        /// For frames being sent, this can additionally be [`XdpPktOptions::XDP_TX_METADATA`] to
         /// indicate that an [`xsk_tx_metadata`] has been filled for the packet
-        pub options: u32,
+        pub options: XdpPktOptions::Enum,
     }
 
-    pub(crate) mod UmemFlags {
+    /// Flags that can be present in [`xdp_desc::options`]
+    pub mod XdpPktOptions {
+        /// The type of the flags
+        pub type Enum = u32;
+
+        /// Flag indicating that the packet continues with the buffer pointed out by the
+        /// next packet in the ring.
+        ///
+        /// The end of the packet is signalled by setting this bit to zero. For
+        /// single buffer packets, every descriptor has [`super::xdp_desc::options`] set
+        /// to `0` and this maintains backward compatibility.
+        pub const XDP_PKT_CONTD: Enum = 1 << 0;
+        /// TX packet carries valid metadata.
+        pub const XDP_TX_METADATA: Enum = 1 << 1;
+    }
+
+    /// Flags that can be present in [`xsk_tx_metadata::flags`]
+    pub mod XdpTxFlags {
+        /// The type of the flags
+        pub type Enum = u64;
+
+        /// Request transmit timestamp.
+        ///
+        /// Upon completion, fills [`super::xsk_tx_offload::completion`] with
+        /// the timestamp when transmission occurred
+        pub const XDP_TXMD_FLAGS_TIMESTAMP: Enum = 0x1;
+
+        /// Request transmit checksum offload.
+        pub const XDP_TXMD_FLAGS_CHECKSUM: Enum = 0x2;
+    }
+
+    /// Checksum offload data that must be filled by userspace when requesting [`XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM`]
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct xsk_tx_request {
+        /// Offset from [`xdp_desc::addr`] where checksumming should start.
+        pub csum_start: u16,
+        /// Offset from [`Self::csum_start`] where checksum should be stored.
+        pub csum_offset: u16,
+    }
+
+    /// The block of data filled by userspace when using [`XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM`]
+    /// and filled by the kernel when using [`XdpTxFlags::XDP_TXMD_FLAGS_TIMESTAMP`]
+    #[repr(C)]
+    pub union xsk_tx_offload {
+        /// The checksum offload request
+        pub request: xsk_tx_request,
+        /// The timestamp the TX request was emitted
+        pub completion: u64,
+    }
+
+    /// `AF_XDP` TX offloads request.
+    #[repr(C)]
+    pub struct xsk_tx_metadata {
+        /// [`XdpTxFlags::XDP_TXMD_FLAGS_TIMESTAMP`] and/or [`XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM`]
+        pub flags: XdpTxFlags::Enum,
+        /// When using [`XdpTxFlags::XDP_TXMD_FLAGS_TIMESTAMP`] the [`xsk_tx_offload::request`]
+        /// field must be set.
+        ///
+        /// When using [`XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM`], the [`xsk_tx_offload::completion`]
+        /// field will be set when the kernel gives back the packet in the completion ring
+        pub offload: xsk_tx_offload,
+    }
+
+    unsafe impl crate::packet::Pod for xsk_tx_metadata {}
+
+    /// Flags available when registering a [`crate::Umem`] with a socket
+    pub mod UmemFlags {
+        /// The type of the flags
         pub type Enum = u32;
 
         /// Umem chunks are not power of 2 (ie, 2k or 4k)
-        pub const UnalignedChunkFlag: Enum = 1 << 0;
+        pub const XDP_UMEM_UNALIGNED_CHUNK_FLAG: Enum = 1 << 0;
         /// Force checksum calculation in software. Can be used for testing or
         /// working around potential HW issues.
         ///
         /// This option causes performance degradation and only works in
         /// `XDP_COPY` mode.
-        pub const TxSwCsum: Enum = 1 << 1;
+        pub const XDP_UMEM_TX_SW_CSUM: Enum = 1 << 1;
         /// Request to reserve `tx_metadata_len` bytes of per-chunk metadata.
-        pub const TxMetadataLen: Enum = 1 << 2;
+        pub const XDP_UMEM_TX_METADATA_LEN: Enum = 1 << 2;
     }
 
     #[repr(C)]
@@ -243,7 +257,9 @@ pub mod xdp {
         /// Size of each individual chunk/packet/packet
         pub chunk_size: u32,
         /// Size of the headroom the packet is offset from the beginning.
-        /// Note this does not include the headroom that is already reserved by the kernel
+        ///
+        /// Note this does not include the headroom that is already reserved by
+        /// the kernel
         pub headroom: u32,
         /// Umem flags
         pub flags: UmemFlags::Enum,

@@ -88,13 +88,13 @@ pub unsafe trait Pod: Sized {
 }
 
 const fn tx_metadata_diff() -> i32 {
-    -(std::mem::size_of::<libc::xsk_tx_metadata>() as i32)
+    -(std::mem::size_of::<libc::xdp::xsk_tx_metadata>() as i32)
 }
 
 /// Configures TX checksum offload when setting TX metadata via [`Packet::set_tx_metadata`]
 pub enum CsumOffload {
     /// Requests checksum offload
-    Request(libc::xsk_tx_request),
+    Request(libc::xdp::xsk_tx_request),
     /// Offload is not requested
     None,
 }
@@ -111,7 +111,7 @@ pub enum CsumOffload {
 ///                                      head                    tail           
 /// ```
 ///
-/// 1. The first ([`bindings::XDP_PACKET_HEADROOM`]) segment of the buffer is
+/// 1. The first ([`libc::xdp::XDP_PACKET_HEADROOM`]) segment of the buffer is
 ///     reserved for kernel usage
 /// 1. `headroom` is an optional segment that can be configured on the [`crate::umem::UmemCfgBuilder::head_room`]
 ///     the packet is allocated from which the kernel will not fill with data,
@@ -155,8 +155,8 @@ impl Packet {
         unsafe {
             Self {
                 data: std::mem::transmute::<&mut [u8], &'static mut [u8]>(buf),
-                head: libc::XDP_PACKET_HEADROOM as _,
-                tail: libc::XDP_PACKET_HEADROOM as _,
+                head: libc::xdp::XDP_PACKET_HEADROOM as _,
+                tail: libc::xdp::XDP_PACKET_HEADROOM as _,
                 base: std::ptr::null(),
                 options: 0,
             }
@@ -177,7 +177,7 @@ impl Packet {
 
     /// The total capacity of the packet.
     ///
-    /// Note that this never includes the [`crate::bindings::XDP_PACKET_HEADROOM`]
+    /// Note that this never includes the [`libc::xdp::XDP_PACKET_HEADROOM`]
     /// part of every packet
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -194,7 +194,7 @@ impl Packet {
     /// this packet, until this returns fals
     #[inline]
     pub fn is_continued(&self) -> bool {
-        (self.options & libc::XdpFlags::XDP_PKT_CONTD as u32) != 0
+        (self.options & libc::xdp::XdpPktOptions::XDP_PKT_CONTD) != 0
     }
 
     /// Checks if the NIC this packet is being sent on supports tx checksum offload
@@ -450,26 +450,28 @@ impl Packet {
         csum: CsumOffload,
         request_timestamp: bool,
     ) -> Result<(), PacketError> {
+        use libc::xdp;
+
         // This would mean the user is requesting to set tx metadata...but not actually do anything
         debug_assert!(request_timestamp || matches!(csum, CsumOffload::Request { .. }));
 
         self.adjust_head(tx_metadata_diff())?;
         {
-            let tx_meta = self.item_at_offset_mut::<libc::xsk_tx_metadata>(0)?;
+            let tx_meta = self.item_at_offset_mut::<xdp::xsk_tx_metadata>(0)?;
             tx_meta.flags = 0;
             tx_meta.offload.completion = 0;
 
             if let CsumOffload::Request(csum_req) = csum {
-                tx_meta.flags |= libc::XDP_TXMD_FLAGS_CHECKSUM;
+                tx_meta.flags |= xdp::XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM;
                 tx_meta.offload.request = csum_req;
             }
 
             if request_timestamp {
-                tx_meta.flags |= libc::XDP_TXMD_FLAGS_TIMESTAMP;
+                tx_meta.flags |= xdp::XdpTxFlags::XDP_TXMD_FLAGS_TIMESTAMP;
             }
         }
         self.adjust_head(-tx_metadata_diff())?;
-        self.options |= libc::XdpFlags::XDP_TX_METADATA as u32;
+        self.options |= xdp::XdpPktOptions::XDP_TX_METADATA;
 
         Ok(())
     }
