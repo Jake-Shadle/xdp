@@ -1,3 +1,4 @@
+use test_utils::netlink::VethPair;
 use xdp::{
     packet::{net_types as nt, *},
     socket::*,
@@ -10,20 +11,37 @@ use xdp::{
 /// flag
 #[test]
 fn offloads_tx_checksum() {
+    if std::env::var_os("CI").is_some() {
+        println!("::notice file={},line={}::Skipping TX offload test with sofware checksum, Ubunut kernel version is too old", file!(), line!());
+        return;
+    }
+
+    let vpair = test_utils::veth_pair!("tx_off", 0);
+
+    do_checksum_test(true, &vpair);
+}
+
+/// Full end-to-end check that checksum are calculated correctly
+#[test]
+fn verify_checksum() {
+    let vpair = test_utils::veth_pair!("tx_chk", 0);
+
+    do_checksum_test(false, &vpair);
+}
+
+fn do_checksum_test(software: bool, vpair: &VethPair) {
     let mut umem = Umem::map(
         UmemCfgBuilder {
             frame_size: FrameSize::TwoK,
             head_room: 20,
             frame_count: 64,
-            tx_metadata: false,
-            software_checksum: false,
+            tx_metadata: software,
+            software_checksum: software,
         }
         .build()
         .expect("invalid umem cfg"),
     )
     .expect("failed to map umem");
-
-    let vpair = test_utils::veth_pair!("tx_off", 0);
 
     const BATCH_SIZE: usize = 2;
 
