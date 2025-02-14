@@ -10,7 +10,7 @@ use crate::{
 /// received from a NIC
 pub struct FillRing {
     ring: super::XskProducer<u64>,
-    _mmap: memmap2::MmapMut,
+    _mmap: crate::mmap::Mmap,
 }
 
 impl FillRing {

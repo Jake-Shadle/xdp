@@ -6,7 +6,7 @@ use crate::{libc, HeapSlab, Umem};
 /// Ring from which we can dequeue packets that have been filled by the kernel
 pub struct RxRing {
     ring: super::XskConsumer<libc::xdp::xdp_desc>,
-    _mmap: memmap2::MmapMut,
+    _mmap: crate::mmap::Mmap,
 }
 
 impl RxRing {

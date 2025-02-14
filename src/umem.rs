@@ -60,7 +60,7 @@ impl TryFrom<FrameSize> for u32 {
 /// they are allocated from
 pub struct Umem {
     /// The actual memory mapping
-    pub(crate) mmap: memmap2::MmapMut,
+    pub(crate) mmap: crate::mmap::Mmap,
     /// Addresses available to be written to by the kernel or userspace
     available: VecDeque<u64>,
     /// The size of each individual packet within the mapping
@@ -79,9 +79,7 @@ pub struct Umem {
 impl Umem {
     /// Attempts to build a [`Self`] by mapping a memory region
     pub fn map(cfg: UmemCfg) -> std::io::Result<Self> {
-        let mmap = memmap2::MmapOptions::new()
-            .len(cfg.frame_count as usize * cfg.frame_size as usize)
-            .map_anon()?;
+        let mmap = crate::mmap::Mmap::map_umem(cfg.frame_count as usize * cfg.frame_size as usize)?;
 
         let mut available = VecDeque::with_capacity(cfg.frame_count as _);
         let frame_size = cfg.frame_size as u64;

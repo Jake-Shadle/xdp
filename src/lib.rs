@@ -26,6 +26,7 @@ pub mod error;
 pub mod packet;
 pub use packet::Packet;
 pub mod libc;
+mod mmap;
 pub mod nic;
 mod rings;
 pub mod socket;

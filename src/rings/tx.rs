@@ -9,7 +9,7 @@ use crate::{
 /// The ring used to enqueue packets for the kernel to send
 pub struct TxRing {
     ring: super::XskProducer<libc::xdp::xdp_desc>,
-    _mmap: memmap2::MmapMut,
+    _mmap: crate::mmap::Mmap,
 }
 
 impl TxRing {

@@ -484,3 +484,56 @@ pub(crate) mod iface {
         pub fn strncmp(cs: *const c_char, ct: *const c_char, n: usize) -> i32;
     }
 }
+
+pub(crate) mod mmap {
+    use super::c_void;
+
+    pub const _SC_PAGESIZE: i32 = 30;
+
+    pub const MAP_FAILED: *mut c_void = !0 as *mut c_void;
+
+    // Don't feel like supporting non-64 bit platforms, but would be possible
+    // if someone actually wanted it
+    #[cfg(not(target_pointer_width = "64"))]
+    compile_error!("non-64 bit platforms are not supported");
+
+    pub mod Flags {
+        pub type Enum = i32;
+
+        pub const MAP_SHARED: Enum = 0x0001;
+        pub const MAP_PRIVATE: Enum = 0x0002;
+        pub const MAP_ANONYMOUS: Enum = 0x0020;
+        pub const MAP_POPULATE: Enum = 0x08000;
+    }
+
+    pub mod Prot {
+        pub type Enum = i32;
+
+        pub const PROT_READ: Enum = 1;
+        pub const PROT_WRITE: Enum = 2;
+    }
+
+    #[link(name = "c")]
+    unsafe extern "C" {
+        /// <https://man7.org/linux/man-pages/man3/sysconf.3.html>
+        pub safe fn sysconf(name: i32) -> i64;
+        /// <https://man7.org/linux/man-pages/man2/mmap.2.html>
+        #[cfg_attr(
+            any(
+                target_os = "android",
+                all(target_os = "linux", not(target_env = "musl"))
+            ),
+            link_name = "mmap64"
+        )]
+        pub fn mmap(
+            addr: *mut c_void,
+            len: usize,
+            prot: Prot::Enum,
+            flags: Flags::Enum,
+            fd: i32,
+            offset: i64,
+        ) -> *mut c_void;
+        /// <https://man7.org/linux/man-pages/man2/mmap.2.html>
+        pub fn munmap(addr: *mut c_void, len: usize) -> i32;
+    }
+}

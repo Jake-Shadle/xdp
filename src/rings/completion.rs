@@ -6,7 +6,7 @@ use crate::{libc::rings, Umem};
 /// The ring used to dequeue buffers that the kernel has finished sending
 pub struct CompletionRing {
     ring: super::XskConsumer<u64>,
-    _mmap: memmap2::MmapMut,
+    _mmap: crate::mmap::Mmap,
 }
 
 impl CompletionRing {

@@ -176,15 +176,12 @@ fn map_ring<T>(
     count: u32,
     offset: libc::RingPageOffsets,
     offsets: &libc::xdp_ring_offset,
-) -> std::io::Result<(memmap2::MmapMut, XskRing<T>)> {
-    // SAFETY: This is called before actually binding the socket, and should be safe barring kernel bugs
-    let mut mmap = unsafe {
-        memmap2::MmapOptions::new()
-            .len(offsets.desc as usize + (count as usize * std::mem::size_of::<T>()))
-            .offset(offset as u64)
-            .populate()
-            .map_mut(socket)?
-    };
+) -> std::io::Result<(crate::mmap::Mmap, XskRing<T>)> {
+    let mut mmap = crate::mmap::Mmap::map_ring(
+        offsets.desc as usize + (count as usize * std::mem::size_of::<T>()),
+        offset as u64,
+        socket,
+    )?;
 
     // SAFETY: The lifetime of the pointers are the same as the mmap
     let ring = unsafe {
