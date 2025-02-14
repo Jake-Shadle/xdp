@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#11](https://github.com/Jake-Shadle/xdp/pull/11) fixed documentation, but also moved some types and constants around in the `libc` module.
+
 ## [0.3.0] - 2025-02-14
 ### Changed
 - [PR#7](https://github.com/Jake-Shadle/xdp/pull/7) removed `libc` in favor of inline bindings.
