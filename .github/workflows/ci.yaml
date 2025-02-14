@@ -62,8 +62,6 @@ jobs:
       - name: build eBPF
         run: |
           (cd /usr/bin && curl -L https://github.com/aya-rs/bpf-linker/releases/download/${BPF_LINKER_VERSION}/bpf-linker-x86_64-unknown-linux-gnu.tar.gz | sudo tar xzf - bpf-linker)
-          sudo apt-get install linux-headers-`uname -r` libbpf-dev
-          sudo ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/asm
           ./build_ebpf.sh
       - name: cargo test build
         working-directory: ./crates/integ
