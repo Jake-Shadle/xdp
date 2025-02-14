@@ -697,7 +697,6 @@ mod test {
     #[test]
     fn gets_features() {
         let nic = super::InterfaceIter::new().unwrap().next().unwrap();
-
-        dbg!(nic.query_capabilities().unwrap());
+        nic.query_capabilities().unwrap();
     }
 }
