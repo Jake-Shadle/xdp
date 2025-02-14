@@ -9,7 +9,7 @@ use aya_ebpf::{
     maps::XskMap,
     programs::XdpContext,
 };
-use aya_log_ebpf::warn;
+//use aya_log_ebpf::warn;
 use network_types::{
     eth::{EthHdr, EtherType},
     ip::{IpProto, Ipv4Hdr, Ipv6Hdr},
@@ -83,7 +83,7 @@ pub fn real_socket_router(ctx: XdpContext) -> Result<Action, ()> {
                     }
                 }
             }
-            other => {
+            _other => {
                 return Err(());
             }
         }
@@ -118,6 +118,6 @@ pub fn socket_router(ctx: XdpContext) -> Action {
 
 /// We can't panic, but we still need to satisfy the linker
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
     unsafe { core::hint::unreachable_unchecked() }
 }
