@@ -7,7 +7,9 @@ use std::{
     os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 };
 
-/// Generic message types
+/// Types for [`nlmsghdr::nlmsg_type`]
+///
+/// <include/uapi/linux/netlink.h>
 mod msg_kind {
     pub type Enum = u16;
 
@@ -19,6 +21,9 @@ mod msg_kind {
     pub const GENL_ID_CTRL: Enum = 0x10;
 }
 
+/// Flags for [`nlmsghdr::nlmsg_flags`]
+///
+/// <include/uapi/linux/netlink.h>>
 mod msg_flags {
     pub type Enum = u16;
 
@@ -26,17 +31,7 @@ mod msg_flags {
     pub const REQUEST: Enum = 0x01;
     // Multipart message, terminated by [`msg_kind::DONE`]
     pub const MULTI: Enum = 0x02;
-    // Reply with ack, with zero or error code
-    //pub const ACK: Enum = 0x04;
-    // Echo this request
-    //pub const ECHO: Enum = 0x08;
-    // Dump was inconsistent due to sequence change
-    //pub const DUMP_INTR: Enum = 0x10;
-    // Dump was filtered as requested
-    //pub const DUMP_FILTERED: Enum = 0x20;
 
-    // Request was capped
-    //pub const CAPPED: Enum = 0x100;
     /// Extended ACK TVLs were included
     pub const ACK_TLVS: Enum = 0x200;
 
@@ -46,6 +41,8 @@ mod msg_flags {
     pub const TYPE_MASK: Enum = !(NESTED | NET_BYTEORDER);
 }
 
+/// Generic netlink constants
+///
 /// <include/uapi/linux/genetlink.h>
 mod generic {
     pub const CTRL_CMD_GETFAMILY: u8 = 3;
@@ -54,6 +51,9 @@ mod generic {
     pub const CTRL_ATTR_FAMILY_NAME: u16 = 2;
 }
 
+/// netdev constants
+///
+/// <include/uapi/linux/netdev.h>
 mod netdev {
     pub const NETDEV_CMD_DEV_GET: u8 = 1;
 
@@ -449,7 +449,7 @@ impl super::NicIndex {
             buf.push(nlmsghdr {
                 nlmsg_len: 0,
                 nlmsg_type: msg_kind::GENL_ID_CTRL,
-                nlmsg_flags: msg_flags::REQUEST, // | msg_flags::ACK,
+                nlmsg_flags: msg_flags::REQUEST,
                 nlmsg_seq: 0,
                 nlmsg_pid: 0,
             })?;
@@ -494,7 +494,7 @@ impl super::NicIndex {
         buf.push(nlmsghdr {
             nlmsg_len: 0,
             nlmsg_type: netdev_id,
-            nlmsg_flags: msg_flags::REQUEST, // | msg_flags::ACK,
+            nlmsg_flags: msg_flags::REQUEST,
             nlmsg_seq: 0,
             nlmsg_pid: 0,
         })?;
