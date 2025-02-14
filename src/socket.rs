@@ -278,7 +278,7 @@ impl XdpSocketBuilder {
         if unsafe {
             libc::socket::getsockopt(
                 socket,
-                libc::socket::Level::XDP,
+                libc::socket::Level::SOL_XDP,
                 OptName::XdpMmapOffsets as _,
                 (&mut offsets as *mut libc::rings::xdp_mmap_offsets).cast(),
                 &mut size,
@@ -348,7 +348,7 @@ impl XdpSocketBuilder {
         if unsafe {
             libc::socket::setsockopt(
                 self.sock.as_raw_fd(),
-                socket::Level::XDP,
+                socket::Level::SOL_XDP,
                 name as i32,
                 (val as *const T).cast(),
                 std::mem::size_of_val(val) as _,

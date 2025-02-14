@@ -1,6 +1,7 @@
 //! Utilities for querying NIC capabilities
 
 use crate::libc::{iface, socket};
+mod netlink;
 
 #[cfg(test)]
 macro_rules! flag_strings {
@@ -531,186 +532,25 @@ impl NicIndex {
 
     /// Queries the network device's available features
     pub fn query_capabilities(&self) -> std::io::Result<NetdevCapabilities> {
-        let mut queue_count = 0;
-        let mut xdp_features = 0;
-        let mut zero_copy_max_segs = 0u32;
-        let mut rx_metadata_features = 0;
-        let mut xsk_features = 0;
+        std::thread::scope(|s| -> std::io::Result<NetdevCapabilities> {
+            let qc = s.spawn(|| self.queue_count().map_or(1, |queues| queues.rx_current));
 
-        std::thread::scope(|s| {
-            s.spawn(|| {
-                queue_count = self.queue_count().map_or(1, |queues| queues.rx_current);
-            });
+            let ndc = s.spawn(|| -> std::io::Result<NetdevCapabilities> { self.netdev_caps() });
 
-            s.spawn(|| -> Result<(), neli::err::SerError> {
-                const GENL_VERSION: u8 = 2;
-
-                let mut socket = neli::socket::NlSocketHandle::connect(
-                    neli::consts::socket::NlFamily::Generic,
-                    None,
-                    &[],
-                )?;
-
-                let id = socket
-                    .resolve_genl_family("netdev")
-                    .map_err(|err| match err {
-                        neli::err::NlError::Ser(ser) => ser,
-                        neli::err::NlError::Msg(msg) => neli::err::SerError::Msg(msg),
-                        neli::err::NlError::Wrapped(w) => neli::err::SerError::Wrapped(w),
-                        other => neli::err::SerError::Msg(other.to_string()),
-                    })?;
-
-                #[derive(Copy, Clone, Debug, PartialEq)]
-                #[repr(u16)]
-                enum Netdev {
-                    IfIndex = 1,
-                    Pad,
-                    XdpFeatures,
-                    XdpZeroCopyMaxSegments,
-                    XdpRxMetadataFeatures,
-                    XskFeatures,
-                    Unknown(u16),
-                }
-
-                impl neli::ToBytes for Netdev {
-                    fn to_bytes(
-                        &self,
-                        buffer: &mut std::io::Cursor<Vec<u8>>,
-                    ) -> Result<(), neli::err::SerError> {
-                        u16::from(*self).to_bytes(buffer)
-                    }
-                }
-
-                impl From<u16> for Netdev {
-                    fn from(val: u16) -> Self {
-                        match val {
-                            1 => Self::IfIndex,
-                            2 => Self::Pad,
-                            3 => Self::XdpFeatures,
-                            4 => Self::XdpZeroCopyMaxSegments,
-                            5 => Self::XdpRxMetadataFeatures,
-                            6 => Self::XskFeatures,
-                            o => Self::Unknown(o),
-                        }
-                    }
-                }
-
-                impl From<Netdev> for u16 {
-                    fn from(value: Netdev) -> Self {
-                        match value {
-                            Netdev::IfIndex => 1,
-                            Netdev::Pad => 2,
-                            Netdev::XdpFeatures => 3,
-                            Netdev::XdpZeroCopyMaxSegments => 4,
-                            Netdev::XdpRxMetadataFeatures => 5,
-                            Netdev::XskFeatures => 6,
-                            Netdev::Unknown(o) => o,
-                        }
-                    }
-                }
-
-                impl<'a> neli::FromBytes<'a> for Netdev {
-                    fn from_bytes(
-                        buffer: &mut std::io::Cursor<&'a [u8]>,
-                    ) -> Result<Self, neli::err::DeError> {
-                        let val = <u16 as neli::FromBytes>::from_bytes(buffer)?;
-                        Ok(Self::from(val))
-                    }
-                }
-
-                impl neli::Size for Netdev {
-                    fn unpadded_size(&self) -> usize {
-                        std::mem::size_of::<u16>()
-                    }
-                }
-
-                impl neli::TypeSize for Netdev {
-                    fn type_size() -> usize {
-                        std::mem::size_of::<u16>()
-                    }
-                }
-
-                impl neli::consts::genl::NlAttrType for Netdev {}
-
-                let mut attrs = neli::types::GenlBuffer::<_, neli::types::Buffer>::new();
-                attrs.push(neli::genl::Nlattr::new(
-                    false,
-                    false,
-                    Netdev::IfIndex,
-                    self.0,
-                )?);
-
-                const NETDEV_CMD_DEV_GET: u8 = 1;
-
-                let genlhdr = neli::genl::Genlmsghdr::new(NETDEV_CMD_DEV_GET, GENL_VERSION, attrs);
-                let nlhdr = neli::nl::Nlmsghdr::new(
-                    None,
-                    id,
-                    neli::consts::nl::NlmFFlags::new(&[neli::consts::nl::NlmF::Request]),
-                    None,
-                    None,
-                    neli::nl::NlPayload::Payload(genlhdr),
-                );
-
-                socket.send(nlhdr)?;
-
-                let mut iter =
-                    socket.iter::<neli::consts::nl::Nlmsg, neli::genl::Genlmsghdr<u8, _>>(false);
-
-                fn get_attr<T: Copy + Clone>(
-                    handle: &neli::attr::AttrHandle<
-                        '_,
-                        neli::types::GenlBuffer<Netdev, neli::types::Buffer>,
-                        neli::genl::Nlattr<Netdev, neli::types::Buffer>,
-                    >,
-                    which: Netdev,
-                ) -> Option<T> {
-                    let attr = handle.get_attribute(which)?;
-                    if attr.nla_payload.len() != std::mem::size_of::<T>() {
-                        return None;
-                    }
-
-                    Some(unsafe { *attr.nla_payload.as_ref().as_ptr().cast::<T>() })
-                }
-
-                while let Some(Ok(msg)) = iter.next() {
-                    let Some(payload) = msg.nl_payload.get_payload() else {
-                        continue;
-                    };
-
-                    let attrs = payload.get_attr_handle();
-
-                    let Some(if_index) = get_attr::<u32>(&attrs, Netdev::IfIndex) else {
-                        continue;
-                    };
-                    if if_index != self.0 {
-                        continue;
-                    }
-                    if let Some(xdp_attr) = get_attr::<u64>(&attrs, Netdev::XdpFeatures) {
-                        xdp_features = xdp_attr;
-
-                        zero_copy_max_segs =
-                            get_attr::<u32>(&attrs, Netdev::XdpZeroCopyMaxSegments).unwrap_or(0);
-                        rx_metadata_features =
-                            get_attr::<u64>(&attrs, Netdev::XdpRxMetadataFeatures).unwrap_or(0);
-                        xsk_features = get_attr::<u64>(&attrs, Netdev::XskFeatures).unwrap_or(0);
-                    }
-                }
-
-                Ok(())
-            });
-        });
-
-        Ok(NetdevCapabilities {
-            queue_count,
-            zero_copy: match zero_copy_max_segs {
-                0 => XdpZeroCopy::Unavailable,
-                1 => XdpZeroCopy::Available,
-                o => XdpZeroCopy::MultiBuffer(o),
-            },
-            xdp_features: XdpFeatures(xdp_features),
-            rx_metadata: XdpRxMetadata(rx_metadata_features),
-            tx_metadata: XdpTxMetadata(xsk_features),
+            let queue_count = qc.join().map_err(|_e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Deadlock,
+                    "panic occurred querying queue count",
+                )
+            })?;
+            let mut ndc = ndc.join().map_err(|_e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "panic occurred query device caps",
+                )
+            })??;
+            ndc.queue_count = queue_count;
+            Ok(ndc)
         })
     }
 }
@@ -849,5 +689,55 @@ impl Iterator for InterfaceIter {
 
             return Some(iface);
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn gets_features() {
+        let nic = super::InterfaceIter::new().unwrap().next().unwrap();
+
+        // let mut socket = neli::socket::NlSocketHandle::connect(
+        //     neli::consts::socket::NlFamily::Generic,
+        //     None,
+        //     &[],
+        // )
+        // .unwrap();
+
+        // //socket.resolve_genl_family(family_name)
+
+        // let mut attrs = neli::types::GenlBuffer::<_, neli::types::Buffer>::new();
+        // attrs.push(
+        //     neli::genl::Nlattr::new(
+        //         false,
+        //         false,
+        //         neli::consts::genl::CtrlAttr::FamilyName,
+        //         "netdev",
+        //     )
+        //     .unwrap(),
+        // );
+
+        // let genlhdr = neli::genl::Genlmsghdr::new(neli::consts::genl::CtrlCmd::Getfamily, 2, attrs);
+        // let nlhdr = neli::nl::Nlmsghdr::new(
+        //     None,
+        //     neli::consts::nl::GenlId::Ctrl,
+        //     neli::consts::nl::NlmFFlags::new(&[
+        //         neli::consts::nl::NlmF::Request,
+        //         neli::consts::nl::NlmF::Ack,
+        //     ]),
+        //     None,
+        //     None,
+        //     neli::nl::NlPayload::Payload(genlhdr),
+        // );
+
+        // use neli::ToBytes;
+        // let buf = Vec::new();
+        // let mut cursor = std::io::Cursor::new(buf);
+        // nlhdr.to_bytes(&mut cursor).unwrap();
+
+        // //dbg!(cursor.into_inner());
+
+        panic!("{:#?}", nic.query_capabilities().unwrap());
     }
 }

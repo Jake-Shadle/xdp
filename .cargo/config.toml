@@ -72,3 +72,7 @@ rustflags = [
     "-Wnonstandard_style",
     "-Wrust_2018_idioms",
 ]
+
+
+[target.'cfg(target_os = "linux")']
+runner = "sudo -E"

@@ -270,6 +270,7 @@ pub(crate) mod socket {
         pub const AF_LOCAL: Enum = 1;
         pub const AF_INET: Enum = 2;
         pub const AF_INET6: Enum = 10;
+        pub const AF_NETLINK: Enum = 16;
         pub const AF_XDP: Enum = 44;
     }
 
@@ -288,19 +289,21 @@ pub(crate) mod socket {
     pub mod Protocol {
         pub type Enum = i32;
 
-        pub const NONE: i32 = 0;
+        pub const NONE: Enum = 0;
+        pub const NETLINK_GENERIC: Enum = 16;
     }
 
     pub mod Level {
         pub type Enum = i32;
 
-        /// `SOL_XDP`
-        pub const XDP: i32 = 283;
+        pub const SOL_NETLINK: Enum = 270;
+        pub const SOL_XDP: Enum = 283;
     }
 
     pub mod MsgFlags {
         pub type Enum = i32;
 
+        pub const NONE: Enum = 0;
         pub const DONTWAIT: Enum = 0x40;
     }
 
@@ -396,6 +399,12 @@ pub(crate) mod socket {
 
         /// <https://man7.org/linux/man-pages/man2/poll.2.html>
         pub fn poll(fds: *mut pollfd, nfds: u64, timeout: i32) -> i32;
+
+        /// <https://man7.org/linux/man-pages/man3/send.3p.html>
+        pub fn send(socket: RawFd, buf: *const c_void, len: usize, flags: MsgFlags::Enum) -> isize;
+
+        /// <https://man7.org/linux/man-pages/man3/recv.3p.html>
+        pub fn recv(socket: RawFd, buf: *mut c_void, len: usize, flags: MsgFlags::Enum) -> isize;
     }
 }
 
