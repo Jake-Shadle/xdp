@@ -3,7 +3,6 @@
 use crate::libc::{iface, socket};
 mod netlink;
 
-#[cfg(test)]
 macro_rules! flag_strings {
     ($table:expr, $v:expr, $f:expr) => {{
         let mut count = 0;
@@ -110,7 +109,6 @@ pub enum XdpAct {
 #[derive(Copy, Clone)]
 pub struct XdpFeatures(u64);
 
-#[cfg(test)]
 impl fmt::Debug for XdpFeatures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         flag_strings!(
@@ -172,7 +170,6 @@ pub enum RxMetadataFlags {
 #[derive(Copy, Clone)]
 pub struct XdpRxMetadata(u64);
 
-#[cfg(test)]
 impl fmt::Debug for XdpRxMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         flag_strings!(
@@ -224,7 +221,6 @@ pub enum TxMetadataFlags {
 #[derive(Copy, Clone)]
 pub struct XdpTxMetadata(u64);
 
-#[cfg(test)]
 impl fmt::Debug for XdpTxMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         flag_strings!(
@@ -695,6 +691,7 @@ impl Iterator for InterfaceIter {
 #[cfg(test)]
 mod test {
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn gets_features() {
         let nic = super::InterfaceIter::new().unwrap().next().unwrap();
         nic.query_capabilities().unwrap();
