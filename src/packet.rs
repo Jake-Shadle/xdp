@@ -150,13 +150,15 @@ pub struct Packet {
 
 impl Packet {
     /// Only used for testing
-    pub fn testing_new(buf: &mut [u8]) -> Self {
-        assert_eq!(buf.len(), 2 * 1024);
+    #[doc(hidden)]
+    pub fn testing_new(buf: &mut [u8; 2 * 1024]) -> Self {
         unsafe {
             Self {
-                data: std::mem::transmute::<&mut [u8], &'static mut [u8]>(buf),
-                head: libc::xdp::XDP_PACKET_HEADROOM as _,
-                tail: libc::xdp::XDP_PACKET_HEADROOM as _,
+                data: std::mem::transmute::<&mut [u8], &'static mut [u8]>(
+                    &mut buf[libc::xdp::XDP_PACKET_HEADROOM as usize..],
+                ),
+                head: 0,
+                tail: 0,
                 base: std::ptr::null(),
                 options: 0,
             }
@@ -386,7 +388,11 @@ impl Packet {
     /// - The offset is not within bounds
     /// - The offset + `N` is not within bounds
     #[inline]
-    pub fn array_at_offset<const N: usize>(&self, offset: usize) -> Result<[u8; N], PacketError> {
+    pub fn array_at_offset<const N: usize>(
+        &self,
+        offset: usize,
+        array: &mut [u8; N],
+    ) -> Result<(), PacketError> {
         let start = self.head + offset;
         if start + N > self.tail {
             return Err(PacketError::InsufficientData {
@@ -396,9 +402,8 @@ impl Packet {
             });
         }
 
-        let mut data = [0u8; N];
-        data.copy_from_slice(&self.data[start..start + N]);
-        Ok(data)
+        array.copy_from_slice(&self.data[start..start + N]);
+        Ok(())
     }
 
     /// Inserts a slice at the specified offset, shifting any bytes above offset
@@ -412,6 +417,11 @@ impl Packet {
     pub fn insert(&mut self, offset: usize, slice: &[u8]) -> Result<(), PacketError> {
         if self.tail + slice.len() > self.data.len() {
             return Err(PacketError::InvalidPacketLength {});
+        } else if offset > self.tail {
+            return Err(PacketError::InvalidOffset {
+                offset,
+                length: self.len(),
+            });
         }
 
         let adjusted_offset = self.head + offset;
