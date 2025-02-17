@@ -106,7 +106,7 @@ pub enum XdpAct {
 
 /// The XDP features that can be supported by a network interface
 #[derive(Copy, Clone)]
-pub struct XdpFeatures(u64);
+pub struct XdpFeatures(pub u64);
 
 impl fmt::Debug for XdpFeatures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -167,7 +167,7 @@ pub enum RxMetadataFlags {
 
 /// The [RX metadata](https://docs.kernel.org/networking/xdp-rx-metadata.html) supported by a NIC
 #[derive(Copy, Clone)]
-pub struct XdpRxMetadata(u64);
+pub struct XdpRxMetadata(pub u64);
 
 impl fmt::Debug for XdpRxMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -218,7 +218,7 @@ pub enum TxMetadataFlags {
 
 /// The [`TxMetadataFlags`] supported by a NIC
 #[derive(Copy, Clone)]
-pub struct XdpTxMetadata(u64);
+pub struct XdpTxMetadata(pub u64);
 
 impl fmt::Debug for XdpTxMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
