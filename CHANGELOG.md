@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - ReleaseDate
 ### Changed
 - [PR#11](https://github.com/Jake-Shadle/xdp/pull/11) fixed documentation, but also moved some types and constants around in the `libc` module.
+- [PR#14](https://github.com/Jake-Shadle/xdp/pull/14) changed `Packet::array_at_offset` to take a `&mut [u8; N]` rather than return it.
+
+### Fixed
+- [PR#14](https://github.com/Jake-Shadle/xdp/pull/14) fixed a bug where inserting past the end of the tail would not return an `Err`.
+
+### Added
+- [PR#14](https://github.com/Jake-Shadle/xdp/pull/14) ungated the `Debug` impls for `XdpFeatures`, `XdpRxMetadata`, and `XdpTxMetadata`.
 
 ## [0.3.0] - 2025-02-14
 ### Changed
