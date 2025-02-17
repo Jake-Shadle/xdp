@@ -54,8 +54,7 @@ pub enum XdpModes {
 ///
 /// Zero copy gives the NIC the XDP socket(s) is bound to [direct memory access](https://en.wikipedia.org/wiki/Direct_memory_access)
 /// to the [`crate::Umem`] buffers provided by userspace to receive or send packets
-#[derive(Copy, Clone)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(Copy, Clone, Debug)]
 pub enum XdpZeroCopy {
     /// Zero copy is not available for the device
     Unavailable,
@@ -249,7 +248,7 @@ impl XdpTxMetadata {
 }
 
 /// The capabilities available for a network device
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct NetdevCapabilities {
     // The [XDP modes](https://docs.ebpf.io/linux/program-type/BPF_PROG_TYPE_XDP/)
     // supported by the driver/device
