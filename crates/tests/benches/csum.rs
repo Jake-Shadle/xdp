@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
-use xdp::packet::{net_types as nt, Pod as _};
+use xdp::packet::{Pod as _, net_types as nt};
 
 fn generate(packet: &mut xdp::Packet, len: usize, ipv4: bool) -> u16 {
     const PAYLOAD: &[u8] = &[0xc0; 2048];
@@ -60,18 +60,18 @@ fn csum_xdp(packet: &mut xdp::Packet) -> u16 {
 fn csum_ic(packet: &mut xdp::Packet) -> u16 {
     use nt::*;
     let mut offset = 0;
-    let eth = packet.item_at_offset::<EthHdr>(offset).unwrap();
+    let eth = packet.get::<EthHdr>(offset).unwrap();
     offset += EthHdr::LEN;
 
     let mut csum = internet_checksum::Checksum::new();
 
-    let udp_hdr = match eth.ether_type {
+    let mut udp_hdr = match eth.ether_type {
         EtherType::Ipv4 => {
-            let ipv4 = packet.item_at_offset::<Ipv4Hdr>(offset).unwrap();
+            let ipv4 = packet.get::<Ipv4Hdr>(offset).unwrap();
             offset += Ipv4Hdr::LEN;
 
-            let udp_hdr = packet.item_at_offset::<UdpHdr>(offset).unwrap();
-            csum.add_bytes(&udp_hdr.len.0.to_ne_bytes());
+            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
+            csum.add_bytes(&udp_hdr.length.0.to_ne_bytes());
             csum.add_bytes(&(IpProto::Udp as u16).to_be_bytes());
             csum.add_bytes(&ipv4.source.0.to_ne_bytes());
             csum.add_bytes(&ipv4.destination.0.to_ne_bytes());
@@ -79,11 +79,11 @@ fn csum_ic(packet: &mut xdp::Packet) -> u16 {
             udp_hdr
         }
         EtherType::Ipv6 => {
-            let ipv6 = packet.item_at_offset::<Ipv6Hdr>(offset).unwrap();
+            let ipv6 = packet.get::<Ipv6Hdr>(offset).unwrap();
             offset += Ipv6Hdr::LEN;
 
-            let udp_hdr = packet.item_at_offset::<UdpHdr>(offset).unwrap();
-            csum.add_bytes(&udp_hdr.len.0.to_ne_bytes());
+            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
+            csum.add_bytes(&udp_hdr.length.0.to_ne_bytes());
             csum.add_bytes(&(IpProto::Udp as u16).to_be_bytes());
             csum.add_bytes(&ipv6.source);
             csum.add_bytes(&ipv6.destination);
@@ -93,15 +93,12 @@ fn csum_ic(packet: &mut xdp::Packet) -> u16 {
         EtherType::Arp => unreachable!(),
     };
 
-    let mut udp_hdr = *udp_hdr;
     udp_hdr.check = 0;
     csum.add_bytes(udp_hdr.as_bytes());
 
     offset += UdpHdr::LEN;
 
-    let data_payload = packet
-        .slice_at_offset(offset, packet.len() - offset)
-        .unwrap();
+    let data_payload = &packet[offset..packet.len()];
     csum.add_bytes(data_payload);
     u16::from_ne_bytes(csum.checksum())
 }
@@ -109,27 +106,25 @@ fn csum_ic(packet: &mut xdp::Packet) -> u16 {
 fn csum_ep(packet: &mut xdp::Packet) -> u16 {
     use nt::*;
     let mut offset = 0;
-    let eth = packet.item_at_offset::<EthHdr>(offset).unwrap();
+    let eth = packet.get::<EthHdr>(offset).unwrap();
     offset += EthHdr::LEN;
 
     match eth.ether_type {
         EtherType::Ipv4 => {
-            let ipv4 = packet.item_at_offset::<Ipv4Hdr>(offset).unwrap();
+            let ipv4 = packet.get::<Ipv4Hdr>(offset).unwrap();
             offset += Ipv4Hdr::LEN;
 
-            let udp_hdr = packet.item_at_offset::<UdpHdr>(offset).unwrap();
+            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
             let hdr = etherparse::UdpHeader {
                 source_port: udp_hdr.source.host(),
-                destination_port: udp_hdr.dest.host(),
-                length: udp_hdr.len.host(),
+                destination_port: udp_hdr.destination.host(),
+                length: udp_hdr.length.host(),
                 checksum: udp_hdr.check,
             };
 
             offset += UdpHdr::LEN;
 
-            let data_payload = packet
-                .slice_at_offset(offset, packet.len() - offset)
-                .unwrap();
+            let data_payload = &packet[offset..packet.len()];
 
             hdr.calc_checksum_ipv4_raw(
                 ipv4.source.0.to_ne_bytes(),
@@ -140,21 +135,19 @@ fn csum_ep(packet: &mut xdp::Packet) -> u16 {
             .to_be()
         }
         EtherType::Ipv6 => {
-            let ipv6 = packet.item_at_offset::<Ipv6Hdr>(offset).unwrap();
+            let ipv6 = packet.get::<Ipv6Hdr>(offset).unwrap();
             offset += Ipv6Hdr::LEN;
 
-            let udp_hdr = packet.item_at_offset::<UdpHdr>(offset).unwrap();
+            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
             let hdr = etherparse::UdpHeader {
                 source_port: udp_hdr.source.host(),
-                destination_port: udp_hdr.dest.host(),
-                length: udp_hdr.len.host(),
+                destination_port: udp_hdr.destination.host(),
+                length: udp_hdr.length.host(),
                 checksum: 0,
             };
             offset += UdpHdr::LEN;
 
-            let data_payload = packet
-                .slice_at_offset(offset, packet.len() - offset)
-                .unwrap();
+            let data_payload = &packet[offset..packet.len()];
             hdr.calc_checksum_ipv6_raw(ipv6.source, ipv6.destination, data_payload)
                 .unwrap()
                 .to_be()

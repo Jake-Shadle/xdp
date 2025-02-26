@@ -9,13 +9,7 @@ test-utils.workspace = true
 xdp.workspace = true
 # Generates test packets
 etherparse.workspace = true
-# Additional checksum implementation for validation
-internet-checksum = "0.2"
 
 [dev-dependencies]
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "csum"
-harness = false

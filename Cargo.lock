@@ -410,7 +410,6 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "etherparse",
- "internet-checksum",
  "test-utils",
  "xdp",
 ]
@@ -707,6 +706,17 @@ dependencies = [
  "env_logger",
  "etherparse",
  "object",
+ "xdp",
+]
+
+[[package]]
+name = "tests"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "etherparse",
+ "internet-checksum",
+ "test-utils",
  "xdp",
 ]
 

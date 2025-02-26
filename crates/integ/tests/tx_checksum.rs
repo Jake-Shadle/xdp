@@ -79,58 +79,79 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
     let client_socket = {
         let _ns = vpair.outside.namespace.enter();
 
-        std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 8999))
-            .expect("failed to bind client socket")
+        let cs = std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 8999))
+            .expect("failed to bind client socket");
+
+        cs.set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+
+        cs
     };
 
     let clientp = b"client request";
     let serverp = b"server response";
 
     let sport = 64000;
+    let run = std::sync::atomic::AtomicBool::new(true);
 
-    std::thread::scope(|s| {
-        s.spawn(|| {
+    macro_rules! poll_loop {
+        ($b:block) => {{
+            loop {
+                if !run.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+
+                $b
+            }
+        }};
+    }
+
+    let res = std::thread::scope(|s| {
+        let client = s.spawn(|| -> Result<(), (&'static str, std::io::Error)> {
             let dest: std::net::SocketAddr = (vpair.inside.ipv4, 7777).into();
             let local = client_socket.local_addr().unwrap();
             println!("sending {}b {local} -> {dest}", clientp.len());
             client_socket
                 .send_to(clientp, dest)
-                .expect("failed to send first request");
+                .map_err(|err| ("failed to send first request", err))?;
 
             let mut response = [0u8; 20];
 
             println!("receiving {}b {local} <- {dest}", serverp.len());
             let (read, addr) = client_socket
                 .recv_from(&mut response)
-                .expect("failed to receive first response");
+                .map_err(|err| ("failed to receive first response", err))?;
             assert_eq!(&response[..read], serverp);
-            assert_eq!(addr, (vpair.inside.ipv4, 64000).into());
+            assert_eq!(addr, (vpair.inside.ipv4, sport).into());
 
             println!("sending {}b {local} -> {dest}", clientp.len());
             client_socket
                 .send_to(clientp, dest)
-                .expect("failed to send first request");
+                .map_err(|err| ("failed to send second request", err))?;
 
             println!("receiving {}b {local} <- {dest}", serverp.len());
             let (read, addr) = client_socket
                 .recv_from(&mut response)
-                .expect("failed to receive first response");
+                .map_err(|err| ("failed to receive second response", err))?;
+
             assert_eq!(&response[..read], serverp);
-            assert_eq!(addr, (vpair.inside.ipv4, 64000).into());
+            assert_eq!(addr, (vpair.inside.ipv4, sport).into());
+
+            Ok(())
         });
 
-        s.spawn(|| {
+        let server = s.spawn(|| {
             let timeout = PollTimeout::new(Some(std::time::Duration::from_millis(100)));
 
             let mut slab = xdp::HeapSlab::with_capacity(BATCH_SIZE);
 
             unsafe {
-                loop {
-                    xdp_socket.poll(timeout).unwrap();
+                poll_loop!({
+                    xdp_socket.poll_read(timeout).unwrap();
                     if rx.recv(&umem, &mut slab) == 1 {
                         break;
                     }
-                }
+                });
 
                 let mut packet = slab.pop_back().unwrap();
                 let udp = nt::UdpPacket::parse_packet(&packet)
@@ -141,52 +162,51 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 packet.adjust_tail(-(udp.data_length as i32)).unwrap();
                 packet.insert(udp.data_offset, serverp).unwrap();
 
-                let nt::IpAddresses::V4 {
-                    source,
-                    destination,
-                } = udp.ips
-                else {
+                let nt::IpHdr::V4(mut copy) = udp.ip else {
                     unreachable!()
                 };
+                std::mem::swap(&mut copy.destination, &mut copy.source);
+                copy.time_to_live -= 1;
 
                 let mut new = nt::UdpPacket {
-                    ips: nt::IpAddresses::V4 {
-                        source: destination,
-                        destination: source,
+                    eth: nt::EthHdr {
+                        source: udp.eth.destination,
+                        destination: udp.eth.source,
+                        ether_type: udp.eth.ether_type,
                     },
-                    src_mac: udp.dst_mac,
-                    dst_mac: udp.src_mac,
-                    src_port: sport.into(),
-                    dst_port: udp.src_port,
+                    ip: nt::IpHdr::V4(copy),
+                    udp: nt::UdpHdr {
+                        destination: udp.udp.source,
+                        source: sport.into(),
+                        length: 0.into(),
+                        check: 0,
+                    },
                     data_offset: udp.data_offset,
                     data_length: serverp.len(),
-                    hop: udp.hop - 1,
-                    checksum: 0.into(),
                 };
-
-                new.set_packet_headers(&mut packet).unwrap();
 
                 // For this packet, we calculate the full checksum
                 let data_checksum = csum::partial(serverp, 0);
-                new.calc_checksum(serverp.len(), data_checksum);
-                println!("Full checksum: {:04x}", new.checksum.host());
+                let full_checksum = new.calc_checksum(serverp.len(), data_checksum);
+                new.set_packet_headers(&mut packet, true).unwrap();
+                println!("Full checksum: {full_checksum:04x}");
 
                 slab.push_back(packet);
                 assert_eq!(tx.send(&mut slab), 1);
 
-                loop {
+                poll_loop!({
                     xdp_socket.poll(timeout).unwrap();
                     if cr.dequeue(&mut umem, 1) == 1 {
                         break;
                     }
-                }
+                });
 
-                loop {
-                    xdp_socket.poll(timeout).unwrap();
+                poll_loop!({
+                    xdp_socket.poll_read(timeout).unwrap();
                     if rx.recv(&umem, &mut slab) == 1 {
                         break;
                     }
-                }
+                });
 
                 let mut packet = slab.pop_back().unwrap();
                 let udp = nt::UdpPacket::parse_packet(&packet)
@@ -196,22 +216,29 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 packet.adjust_tail(-(udp.data_length as i32)).unwrap();
                 packet.insert(udp.data_offset, serverp).unwrap();
 
-                let new = nt::UdpPacket {
-                    ips: nt::IpAddresses::V4 {
-                        source: destination,
-                        destination: source,
+                let nt::IpHdr::V4(mut copy) = udp.ip else {
+                    unreachable!()
+                };
+                std::mem::swap(&mut copy.destination, &mut copy.source);
+                copy.time_to_live -= 1;
+
+                let mut new = nt::UdpPacket {
+                    eth: nt::EthHdr {
+                        source: udp.eth.destination,
+                        destination: udp.eth.source,
+                        ether_type: udp.eth.ether_type,
                     },
-                    src_mac: udp.dst_mac,
-                    dst_mac: udp.src_mac,
-                    src_port: sport.into(),
-                    dst_port: udp.src_port,
+                    ip: nt::IpHdr::V4(copy),
+                    udp: nt::UdpHdr {
+                        destination: udp.udp.source,
+                        source: sport.into(),
+                        length: 0.into(),
+                        check: 0,
+                    },
                     data_offset: udp.data_offset,
                     data_length: serverp.len(),
-                    hop: udp.hop - 1,
-                    checksum: 0.into(),
                 };
-
-                new.set_packet_headers(&mut packet).unwrap();
+                new.set_packet_headers(&mut packet, true).unwrap();
                 println!(
                     "partial checksum: {:04x}",
                     packet.calc_udp_checksum().unwrap()
@@ -220,13 +247,27 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 slab.push_back(packet);
                 assert_eq!(tx.send(&mut slab), 1);
 
-                loop {
+                poll_loop!({
                     xdp_socket.poll(timeout).unwrap();
                     if cr.dequeue(&mut umem, 1) == 1 {
                         break;
                     }
-                }
+                });
             }
         });
+
+        let err = if let Err(err) = client.join().unwrap() {
+            run.store(false, std::sync::atomic::Ordering::Relaxed);
+            Some(err)
+        } else {
+            None
+        };
+
+        server.join().unwrap();
+        err
     });
+
+    if let Some((msg, err)) = res {
+        panic!("{msg}: {err}");
+    }
 }

@@ -1,0 +1,22 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+etherparse.workspace = true
+# Additional checksum implementation for validation
+internet-checksum = "0.2"
+test-utils.workspace = true
+xdp.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "csum"
+harness = false
+
+[[bench]]
+name = "packet"
+harness = false
