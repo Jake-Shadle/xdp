@@ -270,15 +270,16 @@ impl super::Packet {
     /// the TX metadata for the packet so that the data checksum will be calculated
     /// by the NIC that sends the packet
     pub fn calc_udp_checksum(&mut self) -> Result<u16, UdpCalcError> {
+        use crate::packet::Pod as _;
         use nt::*;
 
         let mut offset = 0;
-        let eth = self.item_at_offset::<EthHdr>(offset)?;
+        let eth = self.get::<EthHdr>(offset)?;
         offset += EthHdr::LEN;
 
-        let pseudo_seed = match eth.ether_type {
+        let (pseudo_seed, mut udp_hdr) = match eth.ether_type {
             EtherType::Ipv4 => {
-                let ipv4 = self.item_at_offset::<Ipv4Hdr>(offset)?;
+                let ipv4 = self.get::<Ipv4Hdr>(offset)?;
                 debug_assert_eq!(
                     ipv4.internet_header_length(),
                     Ipv4Hdr::LEN as u8,
@@ -290,7 +291,7 @@ impl super::Packet {
                     return Err(UdpCalcError::NotUdp(ipv4.proto));
                 }
 
-                let udp_hdr = self.item_at_offset::<UdpHdr>(offset)?;
+                let udp_hdr = self.get::<UdpHdr>(offset)?;
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
                 unsafe {
@@ -307,18 +308,18 @@ impl super::Packet {
                         options(att_syntax)
                     );
 
-                    sum
+                    (sum, udp_hdr)
                 }
             }
             EtherType::Ipv6 => {
-                let ipv6 = self.item_at_offset::<Ipv6Hdr>(offset)?;
+                let ipv6 = self.get::<Ipv6Hdr>(offset)?;
                 offset += Ipv6Hdr::LEN;
 
                 if ipv6.next_header != IpProto::Udp {
                     return Err(UdpCalcError::NotUdp(ipv6.next_header));
                 }
 
-                let udp_hdr = self.item_at_offset::<UdpHdr>(offset)?;
+                let udp_hdr = self.get::<UdpHdr>(offset)?;
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
                 unsafe {
@@ -337,16 +338,16 @@ impl super::Packet {
                         options(att_syntax)
                     );
 
-                    finalize(sum)
+                    (finalize(sum), udp_hdr)
                 }
             }
             EtherType::Arp => return Err(UdpCalcError::NotIp(EtherType::Arp)),
         };
 
         let checksum = if self.can_offload_checksum() {
-            let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
             let csum = fold_checksum(pseudo_seed);
             udp_hdr.check = !csum;
+            self.set(offset, udp_hdr)?;
 
             self.set_tx_metadata(
                 crate::packet::CsumOffload::Request(crate::libc::xdp::xsk_tx_request {
@@ -358,14 +359,16 @@ impl super::Packet {
 
             csum
         } else {
-            let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
             udp_hdr.check = 0;
+            let sum = partial(udp_hdr.as_bytes(), pseudo_seed);
 
-            let data_payload = self.slice_at_offset(offset, self.len() - offset)?;
-            let csum = fold_checksum(partial(data_payload, pseudo_seed));
+            let data_offset = offset + nt::UdpHdr::LEN;
+            let data_payload = &self[data_offset..self.len()];
 
-            let udp_hdr = self.item_at_offset_mut::<UdpHdr>(offset)?;
+            let csum = fold_checksum(partial(data_payload, sum));
             udp_hdr.check = csum;
+
+            self.set(offset, udp_hdr)?;
 
             csum
         };
@@ -374,21 +377,18 @@ impl super::Packet {
     }
 }
 
-impl super::net_types::UdpPacket {
+impl nt::UdpPacket {
     /// Given an already calculated checksum for the data payload, or 0 if using
     /// tx checksum offload, checksums the pseudo IP and UDP header
     #[inline]
-    pub fn calc_checksum(&mut self, length: usize, data_checksum: u32) {
+    pub fn calc_checksum(&mut self, length: usize, data_checksum: u32) -> u16 {
         self.data_length = length;
 
         let mut sum = data_checksum as u64;
         let data_len = self.data_length + nt::UdpHdr::LEN;
 
-        match self.ips {
-            nt::IpAddresses::V4 {
-                source,
-                destination,
-            } => {
+        match &self.ip {
+            nt::IpHdr::V4(v4) => {
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
                 unsafe {
                     std::arch::asm!(
@@ -398,12 +398,12 @@ impl super::net_types::UdpPacket {
                         "adcq 0*8({udp}), {sum}",
                         "adcq $0, {sum}",
                         pseudo_udp = in(reg) ((data_len + nt::IpProto::Udp as usize) as u64).to_be(),
-                        saddr = in(reg) (source.to_bits() as u64).to_be(),
-                        daddr = in(reg) (destination.to_bits() as u64).to_be(),
+                        saddr = in(reg) (v4.source.host() as u64).to_be(),
+                        daddr = in(reg) (v4.destination.host() as u64).to_be(),
                         udp = in(reg) &nt::UdpHdr {
-                            source: self.src_port,
-                            dest: self.dst_port,
-                            len: (data_len as u16).into(),
+                            source: self.udp.source,
+                            destination: self.udp.destination,
+                            length: (data_len as u16).into(),
                             check: 0,
                         },
                         sum = inout(reg) sum,
@@ -411,14 +411,11 @@ impl super::net_types::UdpPacket {
                     );
                 }
             }
-            nt::IpAddresses::V6 {
-                source,
-                destination,
-            } => {
+            nt::IpHdr::V6(v6) => {
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
                 unsafe {
-                    let source = source.octets();
-                    let destination = destination.octets();
+                    let source = v6.source;
+                    let destination = v6.destination;
 
                     std::arch::asm!(
                         "addq {pseudo_udp}, {sum}",
@@ -432,9 +429,9 @@ impl super::net_types::UdpPacket {
                         saddr = in(reg) source.as_ptr(),
                         daddr = in(reg) destination.as_ptr(),
                         udp = in(reg) &nt::UdpHdr {
-                            source: self.src_port,
-                            dest: self.dst_port,
-                            len: (data_len as u16).into(),
+                            source: self.udp.source,
+                            destination: self.udp.destination,
+                            length: (data_len as u16).into(),
                             check: 0,
                         },
                         sum = inout(reg) sum,
@@ -444,6 +441,7 @@ impl super::net_types::UdpPacket {
             }
         }
 
-        self.checksum.0 = fold_checksum(finalize(sum));
+        self.udp.check = fold_checksum(finalize(sum));
+        self.udp.check
     }
 }

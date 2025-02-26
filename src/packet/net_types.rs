@@ -43,7 +43,7 @@ macro_rules! net_int {
 
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, $fmt, self.0)
+                write!(f, "{}", self.host())
             }
         }
 
@@ -80,6 +80,8 @@ impl fmt::Display for MacAddress {
 }
 
 /// An [Ethernet II](https://en.wikipedia.org/wiki/Ethernet_frame#Ethernet_II) header
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "__debug", derive(Debug))]
 #[repr(C)]
 pub struct EthHdr {
     /// The destination MAC address
@@ -411,6 +413,7 @@ pub enum IpProto {
 }
 
 /// The [IPv4](https://en.wikipedia.org/wiki/IPv4) header
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Ipv4Hdr {
     bitfield: u16,
@@ -467,7 +470,22 @@ impl Ipv4Hdr {
 
 len!(Ipv4Hdr);
 
+#[cfg(feature = "__debug")]
+impl fmt::Debug for Ipv4Hdr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Ipv4Hdr")
+            .field("total_length", &self.total_length)
+            .field("proto", &self.proto)
+            .field("ttl", &self.time_to_live)
+            .field("check", &format_args!("{:04x}", self.check))
+            .field("source", &Ipv4Addr::from_bits(self.source.host()))
+            .field("destination", &Ipv4Addr::from_bits(self.destination.host()))
+            .finish_non_exhaustive()
+    }
+}
+
 /// The [IPv6](https://en.wikipedia.org/wiki/IPv6) header
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Ipv6Hdr {
     bitfield: u32,
@@ -503,16 +521,47 @@ impl Ipv6Hdr {
 
 len!(Ipv6Hdr);
 
+#[cfg(feature = "__debug")]
+impl fmt::Debug for Ipv6Hdr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const fn sigh(first: u8, second: u8) -> u16 {
+            ((first as u16) << 8) | second as u16
+        }
+        macro_rules! ipv6_from_bytes {
+            ($bytes:expr) => {
+                Ipv6Addr::new(
+                    sigh($bytes[0], $bytes[1]),
+                    sigh($bytes[2], $bytes[3]),
+                    sigh($bytes[4], $bytes[5]),
+                    sigh($bytes[6], $bytes[7]),
+                    sigh($bytes[8], $bytes[9]),
+                    sigh($bytes[10], $bytes[11]),
+                    sigh($bytes[12], $bytes[13]),
+                    sigh($bytes[14], $bytes[15]),
+                )
+            };
+        }
+
+        f.debug_struct("Ipv6Hdr")
+            .field("payload_length", &self.payload_length)
+            .field("next_header", &self.next_header)
+            .field("hop_limit", &self.hop_limit)
+            .field("source", &ipv6_from_bytes!(self.source))
+            .field("destination", &ipv6_from_bytes!(self.destination))
+            .finish_non_exhaustive()
+    }
+}
+
 /// The [UDP](https://en.wikipedia.org/wiki/User_Datagram_Protocol) header
-#[repr(C)]
 #[derive(Copy, Clone)]
+#[repr(C)]
 pub struct UdpHdr {
     /// The source port of the sender
     pub source: NetworkU16,
     /// The destination port
-    pub dest: NetworkU16,
+    pub destination: NetworkU16,
     /// The length of this header and the data portion following it
-    pub len: NetworkU16,
+    pub length: NetworkU16,
     /// The [checksum](https://en.wikipedia.org/wiki/Internet_checksum) of
     /// the [IPv4 pseudo header](https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header) or
     /// [IPv6 pseudo header](https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header),
@@ -521,6 +570,18 @@ pub struct UdpHdr {
 }
 
 len!(UdpHdr);
+
+#[cfg(feature = "__debug")]
+impl fmt::Debug for UdpHdr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UdpHdr")
+            .field("source", &self.source)
+            .field("destination", &self.destination)
+            .field("length", &self.length)
+            .field("check", &format_args!("{:04x}", self.check))
+            .finish()
+    }
+}
 
 /// The IP (L3) address information for a packet
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -580,34 +641,61 @@ impl IpAddresses {
     }
 }
 
-/// UDP packet information that can be parsed and/or written from/to a [`super::Packet`]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// An [Ipv4Hdr] or [Ipv6Hdr]
+#[cfg_attr(feature = "__debug", derive(Debug))]
+pub enum IpHdr {
+    /// An [Ipv4Hdr]
+    V4(Ipv4Hdr),
+    /// An [Ipv6Hdr]
+    V6(Ipv6Hdr),
+}
+
+impl PartialEq<IpAddresses> for IpHdr {
+    fn eq(&self, other: &IpAddresses) -> bool {
+        match (self, other) {
+            (
+                Self::V4(v4),
+                IpAddresses::V4 {
+                    source,
+                    destination,
+                },
+            ) => {
+                v4.source.host() == source.to_bits()
+                    && v4.destination.host() == destination.to_bits()
+            }
+            (
+                Self::V6(v6),
+                IpAddresses::V6 {
+                    source,
+                    destination,
+                },
+            ) => v6.source == source.octets() && v6.destination == destination.octets(),
+            _ => false,
+        }
+    }
+}
+
+/// A [UDP](https://en.wikipedia.org/wiki/User_Datagram_Protocol) packet
+#[cfg_attr(feature = "__debug", derive(Debug))]
 pub struct UdpPacket {
-    /// The IP source and destination information
-    pub ips: IpAddresses,
-    /// The source MAC address
-    pub src_mac: MacAddress,
-    /// The destination MAC address
-    pub dst_mac: MacAddress,
-    /// The source UDP port
-    pub src_port: NetworkU16,
-    /// The destination UDP port
-    pub dst_port: NetworkU16,
-    /// The offset to the beginning of the data segment
+    /// The data link layer header
+    pub eth: EthHdr,
+    /// The network header
+    pub ip: IpHdr,
+    /// The transport header
+    pub udp: UdpHdr,
+    /// The offset from the beginning of the packet where the data payload begins
     pub data_offset: usize,
-    /// The length of the data segment
+    /// The length of the data payload
     pub data_length: usize,
-    /// The IPv4 time-to-live, or IPv6 hop limit
-    pub hop: u8,
-    /// The UDP checksum
-    pub checksum: NetworkU16,
 }
 
 impl UdpPacket {
     /// Attempts to parse a [`Self`] from a packet.
     ///
     /// Returns `Ok(None)` if the packet doesn't seem corrupted, but doesn't
-    /// actually contain a UDP packet
+    /// actually contain a UDP packet, eg. it is not an IP packet, or has a
+    /// different transport layer protocol
     ///
     /// # Errors
     ///
@@ -615,40 +703,26 @@ impl UdpPacket {
     /// packet data indicates a corrupt/invalid packet
     pub fn parse_packet(packet: &super::Packet) -> Result<Option<Self>, super::PacketError> {
         let mut offset = 0;
-        let ether: &EthHdr = packet.item_at_offset(offset)?;
+        let eth = packet.get::<EthHdr>(offset)?;
         offset += EthHdr::LEN;
 
-        let (udp, ips, hop): (&UdpHdr, IpAddresses, u8) = match ether.ether_type {
+        let ip = match eth.ether_type {
             EtherType::Ipv4 => {
-                let ipv4: &Ipv4Hdr = packet.item_at_offset(offset)?;
+                let ipv4 = packet.get::<Ipv4Hdr>(offset)?;
                 offset += Ipv4Hdr::LEN;
 
                 if ipv4.proto == IpProto::Udp {
-                    (
-                        packet.item_at_offset(offset)?,
-                        IpAddresses::V4 {
-                            source: ipv4.source.host().into(),
-                            destination: ipv4.destination.host().into(),
-                        },
-                        ipv4.time_to_live,
-                    )
+                    IpHdr::V4(ipv4)
                 } else {
                     return Ok(None);
                 }
             }
             EtherType::Ipv6 => {
-                let ipv6: &Ipv6Hdr = packet.item_at_offset(offset)?;
+                let ipv6 = packet.get::<Ipv6Hdr>(offset)?;
                 offset += Ipv6Hdr::LEN;
 
                 if ipv6.next_header == IpProto::Udp {
-                    (
-                        packet.item_at_offset(offset)?,
-                        IpAddresses::V6 {
-                            source: ipv6.source.into(),
-                            destination: ipv6.destination.into(),
-                        },
-                        ipv6.hop_limit,
-                    )
+                    IpHdr::V6(ipv6)
                 } else {
                     return Ok(None);
                 }
@@ -658,27 +732,22 @@ impl UdpPacket {
             }
         };
 
-        offset += UdpHdr::LEN;
-
-        let data_length = udp.len.host() as usize - UdpHdr::LEN;
+        let udp = packet.get::<UdpHdr>(offset)?;
+        let data_length = udp.length.host() as usize - UdpHdr::LEN;
 
         Ok(Some(Self {
-            src_mac: ether.source,
-            dst_mac: ether.destination,
-            src_port: udp.source,
-            dst_port: udp.dest,
-            ips,
-            data_offset: offset,
+            eth,
+            ip,
+            udp,
+            data_offset: offset + UdpHdr::LEN,
             data_length,
-            hop,
-            checksum: NetworkU16(udp.check),
         }))
     }
 
     /// True if and IPv4 packet
     #[inline]
     pub fn is_ipv4(&self) -> bool {
-        matches!(&self.ips, IpAddresses::V4 { .. })
+        matches!(&self.ip, IpHdr::V4(_))
     }
 
     /// The total length of the header segments before the data segment
@@ -693,56 +762,46 @@ impl UdpPacket {
             + UdpHdr::LEN
     }
 
-    /// Sets the packet's head to the IP and UDP headers, the packet must have
-    /// enough space
-    pub fn set_packet_headers(&self, packet: &mut super::Packet) -> Result<(), super::PacketError> {
+    /// Writes the headers to the front of the packet buffer.
+    ///
+    /// If `calculate_ipv4_checksum` is `true`, the IPv4 header checksum is
+    /// calculated, otherwise it is set to 0, as the IPv4 checksum is optional
+    /// for UDP packets
+    ///
+    /// # Errors
+    ///
+    /// The packet buffer must have enough space for all of the headers
+    pub fn set_packet_headers(
+        &mut self,
+        packet: &mut super::Packet,
+        calculate_ipv4_checksum: bool,
+    ) -> Result<(), super::PacketError> {
         let mut offset = 0;
-        let ether: &mut EthHdr = packet.item_at_offset_mut(offset)?;
+        packet.set(offset, self.eth)?;
         offset += EthHdr::LEN;
 
-        ether.destination = self.dst_mac;
-        ether.source = self.src_mac;
+        let length = (self.data_length + UdpHdr::LEN) as u16;
 
-        match self.ips {
-            IpAddresses::V4 {
-                source,
-                destination,
-            } => {
-                ether.ether_type = EtherType::Ipv4;
-
-                let ip: &mut Ipv4Hdr = packet.item_at_offset_mut(offset)?;
+        match &mut self.ip {
+            IpHdr::V4(v4) => {
+                v4.total_length = (length + Ipv4Hdr::LEN as u16).into();
+                if calculate_ipv4_checksum {
+                    v4.calc_checksum();
+                } else {
+                    v4.check = 0;
+                }
+                packet.set(offset, *v4)?;
                 offset += Ipv4Hdr::LEN;
-
-                ip.reset(self.hop, IpProto::Udp);
-                ip.source = source.to_bits().into();
-                ip.destination = destination.to_bits().into();
-                ip.total_length = ((Ipv4Hdr::LEN + UdpHdr::LEN + self.data_length) as u16).into();
-
-                // Technically we only need to the IPv4 checksum and can set the
-                // UDP checksum to 0
-                ip.calc_checksum();
             }
-            IpAddresses::V6 {
-                source,
-                destination,
-            } => {
-                ether.ether_type = EtherType::Ipv6;
-
-                let ip: &mut Ipv6Hdr = packet.item_at_offset_mut(offset)?;
+            IpHdr::V6(v6) => {
+                v6.payload_length = length.into();
+                packet.set(offset, *v6)?;
                 offset += Ipv6Hdr::LEN;
-
-                ip.reset(self.hop, IpProto::Udp);
-                ip.source = source.octets();
-                ip.destination = destination.octets();
-                ip.payload_length = ((UdpHdr::LEN + self.data_length) as u16).into();
             }
         }
 
-        let udp: &mut UdpHdr = packet.item_at_offset_mut(offset)?;
-        udp.source = self.src_port;
-        udp.dest = self.dst_port;
-        udp.len = ((self.data_length + UdpHdr::LEN) as u16).into();
-        udp.check = self.checksum.0;
+        self.udp.length = length.into();
+        packet.set(offset, self.udp)?;
 
         Ok(())
     }

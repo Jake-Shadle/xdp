@@ -87,10 +87,6 @@ pub unsafe trait Pod: Sized {
     }
 }
 
-const fn tx_metadata_diff() -> i32 {
-    -(std::mem::size_of::<libc::xdp::xsk_tx_metadata>() as i32)
-}
-
 /// Configures TX checksum offload when setting TX metadata via [`Packet::set_tx_metadata`]
 pub enum CsumOffload {
     /// Requests checksum offload
@@ -268,14 +264,14 @@ impl Packet {
         Ok(())
     }
 
-    /// Retrieves a `T` beginning at the specified offset
+    /// Reads a `T` at the specified offset
     ///
     /// # Errors
     ///
     /// - The offset is not within bounds
     /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn item_at_offset<T: Pod>(&self, offset: usize) -> Result<&T, PacketError> {
+    pub fn get<T: Pod>(&self, offset: usize) -> Result<T, PacketError> {
         let start = self.head + offset;
         if start > self.tail {
             return Err(PacketError::InvalidOffset {
@@ -293,17 +289,20 @@ impl Packet {
             });
         }
 
-        Ok(unsafe { &*(self.data.as_ptr().byte_offset(start as _).cast()) })
+        Ok(unsafe { std::ptr::read_unaligned(self.data.as_ptr().byte_offset(start as _).cast()) })
     }
 
-    /// Retrieves a mutable `T` beginning at the specified offset
+    /// Writes the contents of `item` at the specified `offset`
+    ///
+    /// This does an in-place write, memory above or below `[offset..offset + sizeof(T)]`
+    /// is not affected
     ///
     /// # Errors
     ///
     /// - The offset is not within bounds
     /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn item_at_offset_mut<T: Pod>(&mut self, offset: usize) -> Result<&mut T, PacketError> {
+    pub fn set<T: Pod>(&mut self, offset: usize, item: T) -> Result<(), PacketError> {
         let start = self.head + offset;
         if start > self.tail {
             return Err(PacketError::InvalidOffset {
@@ -322,63 +321,14 @@ impl Packet {
         }
 
         Ok(unsafe {
-            &mut *(self
-                .data
-                .as_mut_ptr()
-                .byte_offset((self.head + offset) as _)
-                .cast())
+            std::ptr::write_unaligned(
+                self.data
+                    .as_mut_ptr()
+                    .byte_offset((self.head + offset) as _)
+                    .cast(),
+                item,
+            )
         })
-    }
-
-    /// Retrieves a slice of bytes beginning at the specified offset
-    ///
-    /// # Errors
-    ///
-    /// - The offset is not within bounds
-    /// - The offset + len is not within bounds
-    #[inline]
-    pub fn slice_at_offset(&self, offset: usize, len: usize) -> Result<&[u8], PacketError> {
-        let start = self.head + offset;
-        if start > self.tail {
-            return Err(PacketError::InvalidOffset {
-                offset,
-                length: self.tail - self.head,
-            });
-        }
-
-        if start + len > self.tail {
-            return Err(PacketError::InsufficientData {
-                offset,
-                size: len,
-                length: self.tail - offset,
-            });
-        }
-
-        Ok(&self.data[start..start + len])
-    }
-
-    /// Retrieves a mutable slice of bytes beginning at the specified offset
-    ///
-    /// # Errors
-    ///
-    /// - The offset is not within bounds
-    /// - The offset + len is not within bounds
-    #[inline]
-    pub fn slice_at_offset_mut(
-        &mut self,
-        offset: usize,
-        len: usize,
-    ) -> Result<&mut [u8], PacketError> {
-        let start = self.head + offset;
-        if start + len > self.tail {
-            return Err(PacketError::InsufficientData {
-                offset,
-                size: len,
-                length: self.tail - offset,
-            });
-        }
-
-        Ok(&mut self.data[start..start + len])
     }
 
     /// Retrieves a fixed size array of bytes beginning at the specified offset
@@ -406,8 +356,8 @@ impl Packet {
         Ok(())
     }
 
-    /// Inserts a slice at the specified offset, shifting any bytes above offset
-    /// by `slice.len()`
+    /// Inserts a slice at the specified offset, shifting any bytes above `offset`
+    /// upwards by `slice.len()`
     ///
     /// # Errors
     ///
@@ -428,13 +378,13 @@ impl Packet {
         let shift = self.tail + self.head - adjusted_offset;
         if shift > 0 {
             unsafe {
-                std::ptr::copy(
-                    self.data.as_ptr().byte_offset(adjusted_offset as isize),
-                    self.data
-                        .as_mut_ptr()
-                        .byte_offset((adjusted_offset + slice.len()) as isize),
-                    shift,
-                );
+                // Note that dst is declared before src, otherwise miri complains about UB
+                let dst = self
+                    .data
+                    .as_mut_ptr()
+                    .byte_offset((adjusted_offset + slice.len()) as isize);
+                let src = self.data.as_ptr().byte_offset(adjusted_offset as isize);
+                std::ptr::copy(src, dst, shift);
             }
         }
 
@@ -462,14 +412,18 @@ impl Packet {
     ) -> Result<(), PacketError> {
         use libc::xdp;
 
-        // This would mean the user is requesting to set tx metadata...but not actually do anything
+        // This would mean the user is making a request that won't actually do anything
         debug_assert!(request_timestamp || matches!(csum, CsumOffload::Request { .. }));
 
-        self.adjust_head(tx_metadata_diff())?;
-        {
-            let tx_meta = self.item_at_offset_mut::<xdp::xsk_tx_metadata>(0)?;
-            tx_meta.flags = 0;
-            tx_meta.offload.completion = 0;
+        if self.head < std::mem::size_of::<xdp::xsk_tx_metadata>() {
+            return Err(PacketError::InsufficientHeadroom {
+                diff: std::mem::size_of::<xdp::xsk_tx_metadata>(),
+                head: self.head,
+            });
+        }
+
+        unsafe {
+            let mut tx_meta = std::mem::zeroed::<xdp::xsk_tx_metadata>();
 
             if let CsumOffload::Request(csum_req) = csum {
                 tx_meta.flags |= xdp::XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM;
@@ -479,8 +433,16 @@ impl Packet {
             if request_timestamp {
                 tx_meta.flags |= xdp::XdpTxFlags::XDP_TXMD_FLAGS_TIMESTAMP;
             }
+
+            std::ptr::write_unaligned(
+                self.data
+                    .as_mut_ptr()
+                    .byte_offset((self.head - std::mem::size_of::<xdp::xsk_tx_metadata>()) as _)
+                    .cast(),
+                tx_meta,
+            )
         }
-        self.adjust_head(-tx_metadata_diff())?;
+
         self.options |= xdp::XdpPktOptions::XDP_TX_METADATA;
 
         Ok(())
@@ -491,6 +453,12 @@ impl std::ops::Deref for Packet {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
         &self.data[self.head..self.tail]
+    }
+}
+
+impl std::ops::DerefMut for Packet {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data[self.head..self.tail]
     }
 }
 
