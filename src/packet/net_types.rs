@@ -1,7 +1,7 @@
 //! This is a minimal set of type definitions/helpers for common network types,
 //! so one does not need to depend on eg. network-types which lacks comments
 
-use super::{csum, Pod};
+use super::{Pod, csum};
 use std::{
     fmt,
     mem::size_of,

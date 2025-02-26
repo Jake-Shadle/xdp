@@ -1,4 +1,5 @@
 #![deny(missing_docs)]
+#![allow(clippy::doc_nested_refdefs)]
 #![doc = include_str!("../README.md")]
 
 macro_rules! within_range {

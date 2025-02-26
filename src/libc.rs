@@ -23,7 +23,7 @@ pub enum InternalXdpFlags {
     /// TX checksum offload is enabled
     SupportsChecksumOffload = 1 << 31,
     /// TX checksum offload is enabled in software
-    SoftwareOffload = 1 << 30 | 1 << 31,
+    SoftwareOffload = (1 << 30) | (1 << 31),
     /// TX completion timestamp is supported
     CompletionTimestamp = 1 << 29,
     /// Mask of valid flags
@@ -278,7 +278,7 @@ pub mod xdp {
 }
 
 pub(crate) mod socket {
-    use super::{c_void, RawFd};
+    use super::{RawFd, c_void};
 
     pub mod AddressFamily {
         pub type Enum = i32;
@@ -425,7 +425,7 @@ pub(crate) mod socket {
 }
 
 pub(crate) mod iface {
-    use super::{c_void, socket::sockaddr, RawFd};
+    use super::{RawFd, c_void, socket::sockaddr};
     use std::ffi::c_char;
 
     /// Maximum length, including NULL, of an interface name

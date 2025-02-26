@@ -2,8 +2,8 @@
 //! filled with data received on the NIC queue the ring is bound to
 
 use crate::{
-    libc::{self, rings},
     Umem,
+    libc::{self, rings},
 };
 
 /// The ring used to enqueue buffers for the kernel to fill in with packets
@@ -104,7 +104,7 @@ impl WakableFillRing {
         num_packets: usize,
         wakeup: bool,
     ) -> std::io::Result<usize> {
-        let queued = self.inner.enqueue(umem, num_packets);
+        let queued = unsafe { self.inner.enqueue(umem, num_packets) };
 
         if queued > 0 && wakeup {
             // SAFETY: This is safe, even if the socket descriptor is invalid.

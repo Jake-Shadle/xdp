@@ -1,7 +1,7 @@
 //! The [`RxRing`] is a consumer ring that userspace can dequeue packets that have
 //! been received on the NIC queue the ring is bound to
 
-use crate::{libc, HeapSlab, Umem};
+use crate::{HeapSlab, Umem, libc};
 
 /// Ring from which we can dequeue packets that have been filled by the kernel
 pub struct RxRing {
@@ -57,7 +57,7 @@ impl RxRing {
         let (actual, idx) = self.ring.peek(nb as _);
 
         if actual > 0 {
-            self.do_recv(actual, idx, umem, packets);
+            unsafe { self.do_recv(actual, idx, umem, packets) };
         }
 
         actual
@@ -68,7 +68,7 @@ impl RxRing {
         let mask = self.ring.mask();
         for i in idx..idx + actual {
             let desc = self.ring[i & mask];
-            packets.push_back(umem.packet(desc));
+            packets.push_back(unsafe { umem.packet(desc) });
         }
 
         self.ring.release(actual as _);

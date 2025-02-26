@@ -2,8 +2,8 @@
 //! sent by the NIC the ring is bound to
 
 use crate::{
-    libc::{self, rings},
     HeapSlab,
+    libc::{self, rings},
 };
 
 /// The ring used to enqueue packets for the kernel to send
@@ -110,7 +110,7 @@ impl WakableTxRing {
     /// lower than the requested `num_packets` if the ring doesn't have sufficient
     /// capacity
     pub unsafe fn send(&mut self, packets: &mut HeapSlab, wakeup: bool) -> std::io::Result<usize> {
-        let queued = self.inner.send(packets);
+        let queued = unsafe { self.inner.send(packets) };
 
         if queued > 0 && wakeup {
             // SAFETY: This is safe, even if the socket descriptor is invalid.
