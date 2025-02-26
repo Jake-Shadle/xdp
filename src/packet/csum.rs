@@ -186,7 +186,8 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
         unsafe {
             // The kernel's load_unaligned_zeropad needs to take into account
             // this load potentially crossing page boundaries, but we don't have
-            // that problem because Umem chunks can't be larger than a page, period.
+            // that problem because Umem chunks can't be larger than a page, nor
+            // do we support unaligned chunks
             let trail = {
                 let mut ual: u64;
                 std::arch::asm!(
@@ -295,15 +296,16 @@ impl super::Packet {
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
                 unsafe {
-                    let mut sum =
-                        (udp_hdr.len.host() as u32).to_be() + (IpProto::Udp as u32).to_be();
+                    let mut sum = 0;
 
                     std::arch::asm!(
                         "addl {saddr:e}, {sum:e}",
                         "adcl {daddr:e}, {sum:e}",
+                        "adcl {pseudo:e}, {sum:e}",
                         "adcl $0, {sum:e}",
                         saddr = in(reg) ipv4.source.0,
                         daddr = in(reg) ipv4.destination.0,
+                        pseudo = in(reg) (udp_hdr.length.host() as u32 + IpProto::Udp as u32) << 8,
                         sum = inout(reg) sum,
                         options(att_syntax)
                     );
@@ -323,8 +325,8 @@ impl super::Packet {
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
                 unsafe {
-                    let mut sum =
-                        (udp_hdr.len.host() as u64).to_be() + (IpProto::Udp as u64).to_be();
+                    let mut sum = ((udp_hdr.length.host() as u32).to_be() as u64)
+                        .wrapping_add((IpProto::Udp as u64).to_be());
 
                     std::arch::asm!(
                         "addq 0*8({saddr}), {sum}",
