@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) renamed `UdpPacket` -> `UdpHeaders`, and changed the contents to be the actual headers that can be de/serialized from/to the packet buffer.
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) moved to edition 2024.
+
+### Added
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) added various utility methods to the types in `net_types`.
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) added `Debug` impls for various types gated behind the `__debug` feature since they are mainly only for internal testing.
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) added `miri` checking to CI, resolving [#13](https://github.com/Jake-Shadle/xdp/issues/13).
+
+### Fixed
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) fixed an issue where UDP checksum calculation could be incorrect depending on the input data.
+
+### Removed
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) removed the `Packet::item_at_offset` and `Packet::item_at_offset_mut` methods as they had undefined behavior, replaced by the `read` and `write` methods.
+- [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) removed `Packet::slice_at_offset` and `Packet::slice_at_offset_mut` in favor of just letting the user use `Deref/DerefMut`.
+
 ## [0.4.0] - 2025-02-17
 ### Changed
 - [PR#11](https://github.com/Jake-Shadle/xdp/pull/11) fixed documentation, but also moved some types and constants around in the `libc` module.
