@@ -12,7 +12,11 @@ use xdp::{
 #[test]
 fn offloads_tx_checksum() {
     if std::env::var_os("CI").is_some() {
-        println!("::notice file={},line={}::Skipping TX offload test with sofware checksum, Ubunut kernel version is too old", file!(), line!());
+        println!(
+            "::notice file={},line={}::Skipping TX offload test with sofware checksum, Ubunut kernel version is too old",
+            file!(),
+            line!()
+        );
         return;
     }
 

@@ -5,7 +5,7 @@ use xdp::{
     Packet,
     packet::{
         Pod,
-        net_types::{self as nt, IpAddresses, MacAddress, UdpPacket},
+        net_types::{self as nt, IpAddresses, MacAddress, UdpHeaders},
     },
 };
 
