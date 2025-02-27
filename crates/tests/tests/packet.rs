@@ -95,7 +95,7 @@ fn udp_recv() {
         nt::EthHdr::LEN + nt::Ipv4Hdr::LEN + nt::UdpHdr::LEN + 1001
     );
 
-    let udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+    let udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
     assert_eq!(udp.eth.source.0, [1; 6]);
     assert_eq!(udp.eth.destination.0, [2; 6]);
     assert_eq!(udp.eth.ether_type, nt::EtherType::Ipv4);
@@ -125,7 +125,7 @@ fn udp_send() {
     ipv6.reset(64, nt::IpProto::Udp);
     ipv6.source = [10; 16];
     ipv6.destination = [1; 16];
-    let mut udp = UdpPacket {
+    let mut udp = UdpHeaders {
         eth: nt::EthHdr {
             source: MacAddress([1; 6]),
             destination: MacAddress([2; 6]),
@@ -201,7 +201,7 @@ fn parses_ipv4() {
         .write(&mut packet, IPV4_DATA)
         .unwrap();
 
-    let udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+    let udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
     assert_eq!(udp.eth.source, SRC_MAC);
     assert_eq!(udp.udp.source, 9000.into());
     assert_eq!(udp.eth.destination, DST_MAC);
@@ -234,7 +234,7 @@ fn parses_ipv6() {
         .write(&mut packet, IPV6_DATA)
         .unwrap();
 
-    let udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+    let udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
     assert_eq!(udp.eth.source, SRC_MAC);
     assert_eq!(udp.udp.source, 5353.into());
     assert_eq!(udp.eth.destination, DST_MAC);

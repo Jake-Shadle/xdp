@@ -60,17 +60,17 @@ fn csum_xdp(packet: &mut xdp::Packet) -> u16 {
 fn csum_ic(packet: &mut xdp::Packet) -> u16 {
     use nt::*;
     let mut offset = 0;
-    let eth = packet.get::<EthHdr>(offset).unwrap();
+    let eth = packet.read::<EthHdr>(offset).unwrap();
     offset += EthHdr::LEN;
 
     let mut csum = internet_checksum::Checksum::new();
 
     let mut udp_hdr = match eth.ether_type {
         EtherType::Ipv4 => {
-            let ipv4 = packet.get::<Ipv4Hdr>(offset).unwrap();
+            let ipv4 = packet.read::<Ipv4Hdr>(offset).unwrap();
             offset += Ipv4Hdr::LEN;
 
-            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
+            let udp_hdr = packet.read::<UdpHdr>(offset).unwrap();
             csum.add_bytes(&udp_hdr.length.0.to_ne_bytes());
             csum.add_bytes(&(IpProto::Udp as u16).to_be_bytes());
             csum.add_bytes(&ipv4.source.0.to_ne_bytes());
@@ -79,10 +79,10 @@ fn csum_ic(packet: &mut xdp::Packet) -> u16 {
             udp_hdr
         }
         EtherType::Ipv6 => {
-            let ipv6 = packet.get::<Ipv6Hdr>(offset).unwrap();
+            let ipv6 = packet.read::<Ipv6Hdr>(offset).unwrap();
             offset += Ipv6Hdr::LEN;
 
-            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
+            let udp_hdr = packet.read::<UdpHdr>(offset).unwrap();
             csum.add_bytes(&udp_hdr.length.0.to_ne_bytes());
             csum.add_bytes(&(IpProto::Udp as u16).to_be_bytes());
             csum.add_bytes(&ipv6.source);
@@ -106,15 +106,15 @@ fn csum_ic(packet: &mut xdp::Packet) -> u16 {
 fn csum_ep(packet: &mut xdp::Packet) -> u16 {
     use nt::*;
     let mut offset = 0;
-    let eth = packet.get::<EthHdr>(offset).unwrap();
+    let eth = packet.read::<EthHdr>(offset).unwrap();
     offset += EthHdr::LEN;
 
     match eth.ether_type {
         EtherType::Ipv4 => {
-            let ipv4 = packet.get::<Ipv4Hdr>(offset).unwrap();
+            let ipv4 = packet.read::<Ipv4Hdr>(offset).unwrap();
             offset += Ipv4Hdr::LEN;
 
-            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
+            let udp_hdr = packet.read::<UdpHdr>(offset).unwrap();
             let hdr = etherparse::UdpHeader {
                 source_port: udp_hdr.source.host(),
                 destination_port: udp_hdr.destination.host(),
@@ -135,10 +135,10 @@ fn csum_ep(packet: &mut xdp::Packet) -> u16 {
             .to_be()
         }
         EtherType::Ipv6 => {
-            let ipv6 = packet.get::<Ipv6Hdr>(offset).unwrap();
+            let ipv6 = packet.read::<Ipv6Hdr>(offset).unwrap();
             offset += Ipv6Hdr::LEN;
 
-            let udp_hdr = packet.get::<UdpHdr>(offset).unwrap();
+            let udp_hdr = packet.read::<UdpHdr>(offset).unwrap();
             let hdr = etherparse::UdpHeader {
                 source_port: udp_hdr.source.host(),
                 destination_port: udp_hdr.destination.host(),

@@ -275,12 +275,12 @@ impl super::Packet {
         use nt::*;
 
         let mut offset = 0;
-        let eth = self.get::<EthHdr>(offset)?;
+        let eth = self.read::<EthHdr>(offset)?;
         offset += EthHdr::LEN;
 
         let (pseudo_seed, mut udp_hdr) = match eth.ether_type {
             EtherType::Ipv4 => {
-                let ipv4 = self.get::<Ipv4Hdr>(offset)?;
+                let ipv4 = self.read::<Ipv4Hdr>(offset)?;
                 debug_assert_eq!(
                     ipv4.internet_header_length(),
                     Ipv4Hdr::LEN as u8,
@@ -292,7 +292,7 @@ impl super::Packet {
                     return Err(UdpCalcError::NotUdp(ipv4.proto));
                 }
 
-                let udp_hdr = self.get::<UdpHdr>(offset)?;
+                let udp_hdr = self.read::<UdpHdr>(offset)?;
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
                 unsafe {
@@ -314,14 +314,14 @@ impl super::Packet {
                 }
             }
             EtherType::Ipv6 => {
-                let ipv6 = self.get::<Ipv6Hdr>(offset)?;
+                let ipv6 = self.read::<Ipv6Hdr>(offset)?;
                 offset += Ipv6Hdr::LEN;
 
                 if ipv6.next_header != IpProto::Udp {
                     return Err(UdpCalcError::NotUdp(ipv6.next_header));
                 }
 
-                let udp_hdr = self.get::<UdpHdr>(offset)?;
+                let udp_hdr = self.read::<UdpHdr>(offset)?;
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
                 unsafe {
@@ -349,7 +349,7 @@ impl super::Packet {
         let checksum = if self.can_offload_checksum() {
             let csum = fold_checksum(pseudo_seed);
             udp_hdr.check = !csum;
-            self.set(offset, udp_hdr)?;
+            self.write(offset, udp_hdr)?;
 
             self.set_tx_metadata(
                 crate::packet::CsumOffload::Request(crate::libc::xdp::xsk_tx_request {
@@ -370,7 +370,7 @@ impl super::Packet {
             let csum = fold_checksum(partial(data_payload, sum));
             udp_hdr.check = csum;
 
-            self.set(offset, udp_hdr)?;
+            self.write(offset, udp_hdr)?;
 
             csum
         };
@@ -379,7 +379,7 @@ impl super::Packet {
     }
 }
 
-impl nt::UdpPacket {
+impl nt::UdpHeaders {
     /// Given an already calculated checksum for the data payload, or 0 if using
     /// tx checksum offload, checksums the pseudo IP and UDP header
     #[inline]

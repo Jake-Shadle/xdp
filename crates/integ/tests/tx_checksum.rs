@@ -154,7 +154,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 });
 
                 let mut packet = slab.pop_back().unwrap();
-                let udp = nt::UdpPacket::parse_packet(&packet)
+                let udp = nt::UdpHeaders::parse_packet(&packet)
                     .expect("failed to parse packet")
                     .expect("not a UDP packet");
 
@@ -168,7 +168,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 std::mem::swap(&mut copy.destination, &mut copy.source);
                 copy.time_to_live -= 1;
 
-                let mut new = nt::UdpPacket {
+                let mut new = nt::UdpHeaders {
                     eth: nt::EthHdr {
                         source: udp.eth.destination,
                         destination: udp.eth.source,
@@ -209,7 +209,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 });
 
                 let mut packet = slab.pop_back().unwrap();
-                let udp = nt::UdpPacket::parse_packet(&packet)
+                let udp = nt::UdpHeaders::parse_packet(&packet)
                     .expect("failed to parse packet")
                     .expect("not a UDP packet");
 
@@ -222,7 +222,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 std::mem::swap(&mut copy.destination, &mut copy.source);
                 copy.time_to_live -= 1;
 
-                let mut new = nt::UdpPacket {
+                let mut new = nt::UdpHeaders {
                     eth: nt::EthHdr {
                         source: udp.eth.destination,
                         destination: udp.eth.source,

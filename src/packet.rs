@@ -271,7 +271,7 @@ impl Packet {
     /// - The offset is not within bounds
     /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn get<T: Pod>(&self, offset: usize) -> Result<T, PacketError> {
+    pub fn read<T: Pod>(&self, offset: usize) -> Result<T, PacketError> {
         let start = self.head + offset;
         if start > self.tail {
             return Err(PacketError::InvalidOffset {
@@ -302,7 +302,7 @@ impl Packet {
     /// - The offset is not within bounds
     /// - The offset + size of `T` is not within bounds
     #[inline]
-    pub fn set<T: Pod>(&mut self, offset: usize, item: T) -> Result<(), PacketError> {
+    pub fn write<T: Pod>(&mut self, offset: usize, item: T) -> Result<(), PacketError> {
         let start = self.head + offset;
         if start > self.tail {
             return Err(PacketError::InvalidOffset {

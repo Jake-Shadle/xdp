@@ -677,7 +677,7 @@ impl PartialEq<IpAddresses> for IpHdr {
 
 /// A [UDP](https://en.wikipedia.org/wiki/User_Datagram_Protocol) packet
 #[cfg_attr(feature = "__debug", derive(Debug))]
-pub struct UdpPacket {
+pub struct UdpHeaders {
     /// The data link layer header
     pub eth: EthHdr,
     /// The network header
@@ -690,7 +690,7 @@ pub struct UdpPacket {
     pub data_length: usize,
 }
 
-impl UdpPacket {
+impl UdpHeaders {
     /// Attempts to parse a [`Self`] from a packet.
     ///
     /// Returns `Ok(None)` if the packet doesn't seem corrupted, but doesn't
@@ -703,12 +703,12 @@ impl UdpPacket {
     /// packet data indicates a corrupt/invalid packet
     pub fn parse_packet(packet: &super::Packet) -> Result<Option<Self>, super::PacketError> {
         let mut offset = 0;
-        let eth = packet.get::<EthHdr>(offset)?;
+        let eth = packet.read::<EthHdr>(offset)?;
         offset += EthHdr::LEN;
 
         let ip = match eth.ether_type {
             EtherType::Ipv4 => {
-                let ipv4 = packet.get::<Ipv4Hdr>(offset)?;
+                let ipv4 = packet.read::<Ipv4Hdr>(offset)?;
                 offset += Ipv4Hdr::LEN;
 
                 if ipv4.proto == IpProto::Udp {
@@ -718,7 +718,7 @@ impl UdpPacket {
                 }
             }
             EtherType::Ipv6 => {
-                let ipv6 = packet.get::<Ipv6Hdr>(offset)?;
+                let ipv6 = packet.read::<Ipv6Hdr>(offset)?;
                 offset += Ipv6Hdr::LEN;
 
                 if ipv6.next_header == IpProto::Udp {
@@ -732,7 +732,7 @@ impl UdpPacket {
             }
         };
 
-        let udp = packet.get::<UdpHdr>(offset)?;
+        let udp = packet.read::<UdpHdr>(offset)?;
         let data_length = udp.length.host() as usize - UdpHdr::LEN;
 
         Ok(Some(Self {
@@ -776,13 +776,11 @@ impl UdpPacket {
         packet: &mut super::Packet,
         calculate_ipv4_checksum: bool,
     ) -> Result<(), super::PacketError> {
-        let mut offset = 0;
-        packet.set(offset, self.eth)?;
-        offset += EthHdr::LEN;
+        let mut offset = EthHdr::LEN;
 
         let length = (self.data_length + UdpHdr::LEN) as u16;
 
-        match &mut self.ip {
+        self.eth.ether_type = match &mut self.ip {
             IpHdr::V4(v4) => {
                 v4.total_length = (length + Ipv4Hdr::LEN as u16).into();
                 if calculate_ipv4_checksum {
@@ -790,18 +788,22 @@ impl UdpPacket {
                 } else {
                     v4.check = 0;
                 }
-                packet.set(offset, *v4)?;
+                packet.write(offset, *v4)?;
                 offset += Ipv4Hdr::LEN;
+                EtherType::Ipv4
             }
             IpHdr::V6(v6) => {
                 v6.payload_length = length.into();
-                packet.set(offset, *v6)?;
+                packet.write(offset, *v6)?;
                 offset += Ipv6Hdr::LEN;
+                EtherType::Ipv6
             }
-        }
+        };
+
+        packet.write(0, self.eth)?;
 
         self.udp.length = length.into();
-        packet.set(offset, self.udp)?;
+        packet.write(offset, self.udp)?;
 
         Ok(())
     }

@@ -39,11 +39,11 @@ fn generate(packet: &mut xdp::Packet, len: usize, ipv4: bool) {
 
 #[inline]
 fn swap_copy(packet: &mut xdp::Packet) {
-    let udp = nt::UdpPacket::parse_packet(packet).unwrap().unwrap();
+    let udp = nt::UdpHeaders::parse_packet(packet).unwrap().unwrap();
 
     let mut offset = 0;
     packet
-        .set(
+        .write(
             offset,
             nt::EthHdr {
                 destination: udp.eth.source,
@@ -57,18 +57,18 @@ fn swap_copy(packet: &mut xdp::Packet) {
     match udp.ip {
         nt::IpHdr::V4(mut v4) => {
             std::mem::swap(&mut v4.source, &mut v4.destination);
-            packet.set(offset, v4).unwrap();
+            packet.write(offset, v4).unwrap();
             offset += nt::Ipv4Hdr::LEN;
         }
         nt::IpHdr::V6(mut v6) => {
             std::mem::swap(&mut v6.source, &mut v6.destination);
-            packet.set(offset, v6).unwrap();
+            packet.write(offset, v6).unwrap();
             offset += nt::Ipv6Hdr::LEN;
         }
     }
 
     packet
-        .set(
+        .write(
             offset,
             nt::UdpHdr {
                 source: udp.udp.destination,

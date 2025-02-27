@@ -17,7 +17,7 @@ fn checksums_ipv4_header() {
         .write(&mut packet, IPV4_DATA)
         .unwrap();
 
-    let mut ip_hdr = packet.get::<Ipv4Hdr>(EthHdr::LEN).unwrap();
+    let mut ip_hdr = packet.read::<Ipv4Hdr>(EthHdr::LEN).unwrap();
     let valid_checksum = ip_hdr.check;
     ip_hdr.check = 0;
     ip_hdr.calc_checksum();
@@ -36,7 +36,7 @@ fn checksums_ipv4_udp() {
         .write(&mut packet, IPV4_DATA)
         .unwrap();
 
-    let udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+    let udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
     assert_eq!(packet.calc_udp_checksum().unwrap(), udp.udp.check);
 }
 
@@ -55,7 +55,7 @@ fn checksums_ipv6_udp() {
         .write(&mut packet, IPV6_DATA)
         .unwrap();
 
-    let udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+    let udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
     assert_eq!(packet.calc_udp_checksum().unwrap(), udp.udp.check);
 }
 
@@ -76,7 +76,7 @@ fn combines_partial_checksums() {
             .write(&mut packet, LARGER)
             .unwrap();
 
-        let mut udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+        let mut udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
         let expected = udp.udp.check;
         assert_eq!(packet.calc_udp_checksum().unwrap(), expected);
 
@@ -97,7 +97,7 @@ fn combines_partial_checksums() {
             .write(&mut packet, LARGER)
             .unwrap();
 
-        let mut udp = UdpPacket::parse_packet(&packet).unwrap().unwrap();
+        let mut udp = UdpHeaders::parse_packet(&packet).unwrap().unwrap();
         let expected = udp.udp.check;
         assert_eq!(packet.calc_udp_checksum().unwrap(), expected);
 
