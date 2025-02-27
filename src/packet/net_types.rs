@@ -5,7 +5,7 @@ use super::{Pod, csum};
 use std::{
     fmt,
     mem::size_of,
-    net::{Ipv4Addr, Ipv6Addr},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
 macro_rules! len {
@@ -93,6 +93,17 @@ pub struct EthHdr {
 }
 
 len!(EthHdr);
+
+impl EthHdr {
+    /// Creates a new [`Self`] with the source and destination addresses swapped
+    pub fn swapped(&self) -> Self {
+        Self {
+            destination: self.source,
+            source: self.destination,
+            ether_type: self.ether_type,
+        }
+    }
+}
 
 /// The [payload](https://en.wikipedia.org/wiki/EtherType) for an Ethernet frame
 #[repr(u16)]
@@ -466,6 +477,15 @@ impl Ipv4Hdr {
         self.check = 0;
         self.check = csum::fold_checksum(csum::partial(self.as_bytes(), 0));
     }
+
+    /// Creates a new [`Self`] with the source and destination addresses swapped
+    #[inline]
+    pub fn swapped(&self) -> Self {
+        let mut new = *self;
+        new.source = self.destination;
+        new.destination = self.source;
+        new
+    }
 }
 
 len!(Ipv4Hdr);
@@ -516,6 +536,15 @@ impl Ipv6Hdr {
         self.bitfield = 0x00000060;
         self.next_header = proto;
         self.hop_limit = hop;
+    }
+
+    /// Creates a new [`Self`] with the source and destination addresses swapped
+    #[inline]
+    pub fn swapped(&self) -> Self {
+        let mut new = *self;
+        new.source = self.destination;
+        new.destination = self.source;
+        new
     }
 }
 
@@ -571,6 +600,19 @@ pub struct UdpHdr {
 
 len!(UdpHdr);
 
+impl UdpHdr {
+    /// Returns a new [`Self`] with the source and destination ports swapped
+    #[inline]
+    pub fn swapped(&self) -> Self {
+        Self {
+            source: self.destination,
+            destination: self.source,
+            length: self.length,
+            check: self.check,
+        }
+    }
+}
+
 #[cfg(feature = "__debug")]
 impl fmt::Debug for UdpHdr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -584,7 +626,7 @@ impl fmt::Debug for UdpHdr {
 }
 
 /// The IP (L3) address information for a packet
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum IpAddresses {
     /// IPv4 addresses
     V4 {
@@ -639,6 +681,68 @@ impl IpAddresses {
             } => ((*source).into(), (*destination).into()),
         }
     }
+
+    /// Given an [`IpHdr`], returns a new IpHdr with the addresses in [`Self`]
+    ///
+    /// Note this automatically decrements the hop counter
+    #[inline]
+    pub fn with_header(self, prev: &IpHdr) -> IpHdr {
+        let mut iphdr = match (self, prev) {
+            (
+                Self::V4 {
+                    source,
+                    destination,
+                },
+                IpHdr::V4(old),
+            ) => {
+                let mut new = *old;
+                new.source = source.to_bits().into();
+                new.destination = destination.to_bits().into();
+                IpHdr::V4(new)
+            }
+            (
+                Self::V6 {
+                    source,
+                    destination,
+                },
+                IpHdr::V6(old),
+            ) => {
+                let mut new = *old;
+                new.source = source.octets();
+                new.destination = destination.octets();
+                IpHdr::V6(new)
+            }
+            (
+                Self::V4 {
+                    source,
+                    destination,
+                },
+                IpHdr::V6(old),
+            ) => {
+                let mut new = Ipv4Hdr::zeroed();
+                new.reset(old.hop_limit, old.next_header);
+                new.source = source.to_bits().into();
+                new.destination = destination.to_bits().into();
+                IpHdr::V4(new)
+            }
+            (
+                Self::V6 {
+                    source,
+                    destination,
+                },
+                IpHdr::V4(old),
+            ) => {
+                let mut new = Ipv6Hdr::zeroed();
+                new.reset(old.time_to_live, old.proto);
+                new.source = source.octets();
+                new.destination = destination.octets();
+                IpHdr::V6(new)
+            }
+        };
+
+        iphdr.decrement_hop();
+        iphdr
+    }
 }
 
 /// An [Ipv4Hdr] or [Ipv6Hdr]
@@ -648,6 +752,32 @@ pub enum IpHdr {
     V4(Ipv4Hdr),
     /// An [Ipv6Hdr]
     V6(Ipv6Hdr),
+}
+
+impl IpHdr {
+    /// Creates a new [`Self`] with the source and destination addresses swapped
+    #[inline]
+    pub fn swapped(&self) -> Self {
+        match self {
+            Self::V4(v4) => Self::V4(v4.swapped()),
+            Self::V6(v6) => Self::V6(v6.swapped()),
+        }
+    }
+
+    /// Decrements the hop/ttl of the IP header
+    #[inline]
+    pub fn decrement_hop(&mut self) -> u8 {
+        let hop = match self {
+            Self::V4(v4) => &mut v4.time_to_live,
+            Self::V6(v6) => &mut v6.hop_limit,
+        };
+
+        if *hop != 0 {
+            *hop -= 1;
+        }
+
+        *hop
+    }
 }
 
 impl PartialEq<IpAddresses> for IpHdr {
@@ -760,6 +890,52 @@ impl UdpHeaders {
                 Ipv6Hdr::LEN
             }
             + UdpHdr::LEN
+    }
+
+    /// Decrements the hop counter
+    #[inline]
+    pub fn decrement_hop(&mut self) -> u8 {
+        self.ip.decrement_hop()
+    }
+
+    /// Retrieves the source address information
+    #[inline]
+    pub fn source_address(&self) -> SocketAddr {
+        use std::net::*;
+
+        match self.ip {
+            IpHdr::V4(v4) => SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::from_bits(v4.source.host()),
+                self.udp.source.host(),
+            )),
+            IpHdr::V6(v6) => SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from_bits(u128::from_be_bytes(v6.source)),
+                self.udp.source.host(),
+                // we _could_ retrieve these from the header, but...meh
+                0,
+                0,
+            )),
+        }
+    }
+
+    /// Retrieves the destination address information
+    #[inline]
+    pub fn destination_address(&self) -> SocketAddr {
+        use std::net::*;
+
+        match self.ip {
+            IpHdr::V4(v4) => SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::from_bits(v4.destination.host()),
+                self.udp.destination.host(),
+            )),
+            IpHdr::V6(v6) => SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from_bits(u128::from_be_bytes(v6.destination)),
+                self.udp.destination.host(),
+                // we _could_ retrieve these from the header, but...meh
+                0,
+                0,
+            )),
+        }
     }
 
     /// Writes the headers to the front of the packet buffer.
