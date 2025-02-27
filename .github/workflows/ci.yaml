@@ -47,7 +47,7 @@ jobs:
       - name: cargo test
         run: cargo test
 
-  integ-test:
+  miri-test:
     runs-on: ubuntu-24.04
     env:
       BPF_LINKER_VERSION: "v0.9.13"
@@ -71,6 +71,29 @@ jobs:
         run: cargo nextest run
       - name: cargo miri test
         run: cargo miri nextest run -j 4
+
+  integ-test:
+    runs-on: ubuntu-24.04
+    env:
+      BPF_LINKER_VERSION: "v0.9.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src, miri
+      - run: cargo fetch
+      - name: build eBPF
+        run: |
+          (cd /usr/bin && curl -L https://github.com/aya-rs/bpf-linker/releases/download/${BPF_LINKER_VERSION}/bpf-linker-x86_64-unknown-linux-gnu.tar.gz | sudo tar xzf - bpf-linker)
+          ./build_ebpf.sh
+      - name: cargo test build
+        working-directory: ./crates/integ
+        run: cargo build --tests
+      - name: cargo test
+        working-directory: ./crates/integ
+        run: cargo test
 
   docs:
     runs-on: ubuntu-24.04
@@ -102,6 +125,6 @@ jobs:
 
   test_success:
     runs-on: ubuntu-24.04
-    needs: [lint, test, integ-test, docs, publish-check]
+    needs: [lint, test, miri-test, integ-test, docs, publish-check]
     steps:
       - run: echo "All test jobs passed"
