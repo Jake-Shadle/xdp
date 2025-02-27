@@ -1,9 +1,9 @@
 //! [`Umem`] creation and operation
 
 use crate::{
-    error::{ConfigError, Error},
-    libc::{self, xdp::xdp_desc, InternalXdpFlags},
     Packet,
+    error::{ConfigError, Error},
+    libc::{self, InternalXdpFlags, xdp::xdp_desc},
 };
 use std::collections::VecDeque;
 

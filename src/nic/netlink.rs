@@ -358,7 +358,10 @@ impl NetlinkSocket {
                                         (kind == NLMSGERR_ATTR_MSG).then_some(String::from_utf8_lossy(&data[..data.len() - 2]).into_owned())
                                     }).unwrap_or_else(|| format!("received netlink error code {}, and we failed to retrieve the additional information provided by the kernel", err_hdr.error))
                                 } else {
-                                    format!("received netlink error code {}, and no additional error information was provided by the kernel", err_hdr.error)
+                                    format!(
+                                        "received netlink error code {}, and no additional error information was provided by the kernel",
+                                        err_hdr.error
+                                    )
                                 };
 
                                 return Err(Error::new(ErrorKind::ConnectionRefused, message));

@@ -1,7 +1,7 @@
 //! The [`CompletionRing`] is a consumer ring that userspace can dequeue packets
 //! that have been sent on the NIC queue the ring is bound to
 
-use crate::{libc::rings, Umem};
+use crate::{Umem, libc::rings};
 
 /// The ring used to dequeue buffers that the kernel has finished sending
 pub struct CompletionRing {

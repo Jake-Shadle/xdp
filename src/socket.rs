@@ -1,7 +1,7 @@
 //! Initialization and polling of an [`AF_XDP`](https://en.wikipedia.org/wiki/Express_Data_Path#AF_XDP) socket
 
 use crate::{
-    libc::{self, socket, xdp, InternalXdpFlags},
+    libc::{self, InternalXdpFlags, socket, xdp},
     rings,
 };
 use std::{fmt, io::Error, os::fd::AsRawFd as _};
