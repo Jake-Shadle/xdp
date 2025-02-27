@@ -96,6 +96,7 @@ len!(EthHdr);
 
 impl EthHdr {
     /// Creates a new [`Self`] with the source and destination addresses swapped
+    #[inline]
     pub fn swapped(&self) -> Self {
         Self {
             destination: self.source,
@@ -550,33 +551,24 @@ impl Ipv6Hdr {
 
 len!(Ipv6Hdr);
 
+/// Converts a 16-byte array to an [`Ipv6Addr`]
+///
+/// Temporary until [`Ipv6Addr::from_octets`](https://doc.rust-lang.org/std/net/struct.Ipv6Addr.html#method.from_octets)
+/// is stabilized
+#[inline]
+pub const fn ipv6_addr_from_bytes(octets: [u8; 16]) -> Ipv6Addr {
+    Ipv6Addr::from_bits(u128::from_be_bytes(octets))
+}
+
 #[cfg(feature = "__debug")]
 impl fmt::Debug for Ipv6Hdr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const fn sigh(first: u8, second: u8) -> u16 {
-            ((first as u16) << 8) | second as u16
-        }
-        macro_rules! ipv6_from_bytes {
-            ($bytes:expr) => {
-                Ipv6Addr::new(
-                    sigh($bytes[0], $bytes[1]),
-                    sigh($bytes[2], $bytes[3]),
-                    sigh($bytes[4], $bytes[5]),
-                    sigh($bytes[6], $bytes[7]),
-                    sigh($bytes[8], $bytes[9]),
-                    sigh($bytes[10], $bytes[11]),
-                    sigh($bytes[12], $bytes[13]),
-                    sigh($bytes[14], $bytes[15]),
-                )
-            };
-        }
-
         f.debug_struct("Ipv6Hdr")
             .field("payload_length", &self.payload_length)
             .field("next_header", &self.next_header)
             .field("hop_limit", &self.hop_limit)
-            .field("source", &ipv6_from_bytes!(self.source))
-            .field("destination", &ipv6_from_bytes!(self.destination))
+            .field("source", &ipv6_addr_from_bytes(self.source))
+            .field("destination", &ipv6_addr_from_bytes(self.destination))
             .finish_non_exhaustive()
     }
 }
@@ -909,7 +901,7 @@ impl UdpHeaders {
                 self.udp.source.host(),
             )),
             IpHdr::V6(v6) => SocketAddr::V6(SocketAddrV6::new(
-                Ipv6Addr::from_bits(u128::from_be_bytes(v6.source)),
+                ipv6_addr_from_bytes(v6.source),
                 self.udp.source.host(),
                 // we _could_ retrieve these from the header, but...meh
                 0,
@@ -929,7 +921,7 @@ impl UdpHeaders {
                 self.udp.destination.host(),
             )),
             IpHdr::V6(v6) => SocketAddr::V6(SocketAddrV6::new(
-                Ipv6Addr::from_bits(u128::from_be_bytes(v6.destination)),
+                ipv6_addr_from_bytes(v6.destination),
                 self.udp.destination.host(),
                 // we _could_ retrieve these from the header, but...meh
                 0,
