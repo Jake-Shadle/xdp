@@ -320,15 +320,16 @@ impl Packet {
             });
         }
 
-        Ok(unsafe {
+        unsafe {
             std::ptr::write_unaligned(
                 self.data
                     .as_mut_ptr()
                     .byte_offset((self.head + offset) as _)
                     .cast(),
                 item,
-            )
-        })
+            );
+        }
+        Ok(())
     }
 
     /// Retrieves a fixed size array of bytes beginning at the specified offset
@@ -440,7 +441,7 @@ impl Packet {
                     .byte_offset((self.head - std::mem::size_of::<xdp::xsk_tx_metadata>()) as _)
                     .cast(),
                 tx_meta,
-            )
+            );
         }
 
         self.options |= xdp::XdpPktOptions::XDP_TX_METADATA;

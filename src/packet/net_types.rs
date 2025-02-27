@@ -682,7 +682,7 @@ impl IpAddresses {
         }
     }
 
-    /// Given an [`IpHdr`], returns a new IpHdr with the addresses in [`Self`]
+    /// Given an [`IpHdr`], returns a new [`IpHdr`] with the addresses in [`Self`]
     ///
     /// Note this automatically decrements the hop counter
     #[inline]
@@ -745,12 +745,12 @@ impl IpAddresses {
     }
 }
 
-/// An [Ipv4Hdr] or [Ipv6Hdr]
+/// An [`Ipv4Hdr`] or [`Ipv6Hdr`]
 #[cfg_attr(feature = "__debug", derive(Debug))]
 pub enum IpHdr {
-    /// An [Ipv4Hdr]
+    /// An [`Ipv4Hdr`]
     V4(Ipv4Hdr),
-    /// An [Ipv6Hdr]
+    /// An [`Ipv6Hdr`]
     V6(Ipv6Hdr),
 }
 

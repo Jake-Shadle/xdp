@@ -23,12 +23,14 @@ This crate is still early days, and focused on the needs of [Quilkin](https://gi
 
 ## Features
 
+```txt
 - [x] - Network interface enumeration and capability querying
 - [x] - Basic Umem support
 - [ ] - Shared Umem support
 - [x] - Fill, RX, TX, Completion rings
 - [x] - [TX checksum offload/completion timestamp](https://docs.kernel.org/networking/xsk-tx-metadata.html)
 - [ ] - [RX metadata](https://docs.kernel.org/networking/xdp-rx-metadata.html)
+```
 
 ## License
 
