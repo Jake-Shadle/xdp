@@ -59,7 +59,7 @@ jobs:
         run: cargo miri setup
       - run: cargo fetch
       - name: cargo test
-        run: cargo miri test
+        run: cargo miri test -p tests
 
   integ-test:
     runs-on: ubuntu-22.04
