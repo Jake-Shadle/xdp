@@ -66,13 +66,13 @@ jobs:
       - name: install nextest
         run: curl -LsSf https://get.nexte.st/latest/linux-musl | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
       - name: cargo test build
-        working-directory: ./crates/integ
+        working-directory: ./crates/tests
         run: cargo build --tests
       - name: cargo test
-        working-directory: ./crates/integ
+        working-directory: ./crates/tests
         run: cargo nextest run
       - name: cargo miri test
-        working-directory: ./crates/integ
+        working-directory: ./crates/tests
         run: cargo miri nextest run -j 4
 
   docs:
