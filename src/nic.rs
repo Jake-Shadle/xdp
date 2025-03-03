@@ -509,10 +509,10 @@ impl NicIndex {
                         continue;
                     }
 
-                    if entry.d_name[..2] == [b'r' as i8, b'x' as i8] {
+                    if entry.d_name[..2] == [b'r', b'x'] {
                         channels.max_rx += 1;
                         channels.rx_count += 1;
-                    } else if entry.d_name[..2] == [b't' as i8, b'x' as i8] {
+                    } else if entry.d_name[..2] == [b't', b'x'] {
                         channels.max_tx += 1;
                         channels.tx_count += 1;
                     }
@@ -587,7 +587,7 @@ impl PartialEq<NicIndex> for NicIndex {
 /// The human-readable name assigned to a network device
 #[derive(Copy, Clone)]
 pub struct NicName {
-    arr: [i8; iface::IF_NAMESIZE],
+    arr: [u8; iface::IF_NAMESIZE],
     len: usize,
 }
 
@@ -596,10 +596,7 @@ impl NicName {
     /// unlikely case the interface name is not utf-8
     #[inline]
     pub fn as_str(&self) -> Option<&str> {
-        std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(self.arr.as_ptr().cast(), self.len)
-        })
-        .ok()
+        std::str::from_utf8(&self.arr[..self.len]).ok()
     }
 }
 

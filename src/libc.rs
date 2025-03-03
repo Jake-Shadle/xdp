@@ -446,7 +446,7 @@ pub(crate) mod iface {
     #[repr(C)]
     pub struct ifaddrs {
         pub ifa_next: *mut ifaddrs,
-        pub ifa_name: *mut c_char,
+        pub ifa_name: *mut u8,
         pub ifa_flags: u32,
         pub ifa_addr: *mut sockaddr,
         pub ifa_netmask: *mut sockaddr,
@@ -460,7 +460,7 @@ pub(crate) mod iface {
         pub d_off: i64,
         pub d_reclen: u16,
         pub d_type: u8,
-        pub d_name: [c_char; 256],
+        pub d_name: [u8; 256],
     }
 
     #[repr(C)]
@@ -470,7 +470,7 @@ pub(crate) mod iface {
 
     #[repr(C)]
     pub struct ifreq {
-        pub ifr_name: [c_char; 16],
+        pub ifr_name: [u8; 16],
         pub ifr_ifru: ifr_ifru,
     }
 
@@ -484,21 +484,21 @@ pub(crate) mod iface {
         pub fn freeifaddrs(ifap: *mut ifaddrs) -> i32;
 
         /// <https://man7.org/linux/man-pages/man3/if_nametoindex.3.html>
-        pub fn if_indextoname(ifindex: u32, ifname: *mut c_char) -> *mut c_char;
+        pub fn if_indextoname(ifindex: u32, ifname: *mut u8) -> *mut u8;
         /// <https://man7.org/linux/man-pages/man3/if_nametoindex.3.html>
-        pub fn if_nametoindex(ifname: *const c_char) -> u32;
+        pub fn if_nametoindex(ifname: *const u8) -> u32;
 
         /// <https://man7.org/linux/man-pages/man2/ioctl.2.html>
         pub fn ioctl(fd: RawFd, request: u64, ...) -> i32;
 
         /// <https://man7.org/linux/man-pages/man3/opendir.3.html>
-        pub fn opendir(dirname: *const c_char) -> *mut DIR;
+        pub fn opendir(dirname: *const u8) -> *mut DIR;
         /// <https://man7.org/linux/man-pages/man3/closedir.3.html>
         pub fn closedir(dirp: *mut DIR) -> i32;
         /// <https://man7.org/linux/man-pages/man3/readdir.3.html>
         pub fn readdir(dirp: *mut DIR) -> *mut dirent;
 
-        pub fn strncmp(cs: *const c_char, ct: *const c_char, n: usize) -> i32;
+        pub fn strncmp(cs: *const u8, ct: *const u8, n: usize) -> i32;
     }
 }
 

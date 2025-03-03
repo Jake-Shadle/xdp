@@ -70,6 +70,7 @@ const NLMSGERR_ATTR_MSG: u16 = 1;
 
 macro_rules! len {
     ($record:ty) => {
+        // SAFETY: internal only
         unsafe impl Pod for $record {}
 
         impl $record {
@@ -153,7 +154,7 @@ impl<const N: usize> Buf<N> {
     }
 
     #[inline]
-    fn read<P: Pod>(&self, off: &mut usize) -> Result<&P> {
+    fn read<P: Pod>(&self, off: &mut usize) -> Result<P> {
         if *off + P::size() > self.len {
             return Err(Error::new(
                 ErrorKind::UnexpectedEof,
@@ -161,13 +162,15 @@ impl<const N: usize> Buf<N> {
             ));
         }
 
-        let p = unsafe { &*(self.buf.as_ptr().byte_offset(*off as _).cast()) };
+        let p =
+            // SAFETY: we've validated we'll only read within bounds
+            unsafe { std::ptr::read_unaligned(self.buf.as_ptr().byte_offset(*off as _).cast()) };
         *off += P::size();
         Ok(p)
     }
 
     #[inline]
-    fn write<P: Pod>(&mut self, off: &mut usize) -> Result<&mut P> {
+    fn write<P: Pod>(&mut self, off: &mut usize, item: P) -> Result<()> {
         if *off + P::size() > self.len {
             return Err(Error::new(
                 ErrorKind::UnexpectedEof,
@@ -175,9 +178,12 @@ impl<const N: usize> Buf<N> {
             ));
         }
 
-        let p = unsafe { &mut *(self.buf.as_mut_ptr().byte_offset(*off as _).cast()) };
+        // SAFETY: we've validated we'll only write within bounds
+        unsafe {
+            std::ptr::write_unaligned(self.buf.as_mut_ptr().byte_offset(*off as _).cast(), item);
+        };
         *off += P::size();
-        Ok(p)
+        Ok(())
     }
 
     #[inline]
@@ -300,12 +306,16 @@ impl NetlinkSocket {
         let seq = self.seq;
         self.seq += 1;
 
+        // SAFETY: various syscalls and buffer manipulation
         unsafe {
             let mut off = 0;
             let len = msg.len;
-            let hdr = msg.write::<nlmsghdr>(&mut off)?;
+
+            let mut hdr = msg.read::<nlmsghdr>(&mut off)?;
+            off = 0;
             hdr.nlmsg_seq = seq;
             hdr.nlmsg_len = len as _;
+            msg.write(&mut off, hdr)?;
 
             let sent: usize = io_err!(socket::send(
                 self.sock.as_raw_fd(),
@@ -354,7 +364,7 @@ impl NetlinkSocket {
                                 let message = if msg_hdr.nlmsg_flags & msg_flags::ACK_TLVS != 0 {
                                     // We could also recover the offset of the failing attribute, but considering
                                     // we only do 2 requests and both have a single attribute..
-                                    AttrIter::error(msg, msg_hdr, err_hdr, &mut offset).find_map(|(kind, data)| {
+                                    AttrIter::error(msg, &msg_hdr, &err_hdr, &mut offset).find_map(|(kind, data)| {
                                         (kind == NLMSGERR_ATTR_MSG).then_some(String::from_utf8_lossy(&data[..data.len() - 2]).into_owned())
                                     }).unwrap_or_else(|| format!("received netlink error code {}, and we failed to retrieve the additional information provided by the kernel", err_hdr.error))
                                 } else {
@@ -373,7 +383,7 @@ impl NetlinkSocket {
                             return Ok(None);
                         }
                         _other => {
-                            let res = func(AttrIter::generic(msg, msg_hdr, &mut offset)?)?;
+                            let res = func(AttrIter::generic(msg, &msg_hdr, &mut offset)?)?;
                             if res.is_some() {
                                 return Ok(res);
                             }
