@@ -416,8 +416,8 @@ impl Packet {
 
     /// Sets the specified [TX metadata](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/Documentation/networking/xsk-tx-metadata.rst)
     ///
-    /// Calling this function requires that the [`crate::umem::UmemCfgBuilder::tx_metadata`]
-    /// was true.
+    /// Calling this function requires that the [`crate::umem::UmemCfgBuilder::tx_checksum`]
+    /// and/or [`crate::umem::UmemCfgBuilder::tx_timestamp`] were true
     ///
     /// - If `csum` is `CsumOffload::Request`, this will request that the Layer 4
     ///     checksum computation be offload to the NIC before transmission. Note that
