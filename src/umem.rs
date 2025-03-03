@@ -88,7 +88,7 @@ impl Umem {
         Ok(Self {
             mmap,
             available,
-            frame_size: cfg.frame_size as _,
+            frame_size: cfg.frame_size as usize - libc::xdp::XDP_PACKET_HEADROOM,
             frame_mask: !(cfg.frame_size as u64 - 1),
             head_room: cfg.head_room as _,
             options: if cfg.tx_metadata {
@@ -115,18 +115,17 @@ impl Umem {
         // SAFETY: Barring kernel bugs, we should only ever get valid addresses
         // within the range of our map
         unsafe {
-            let addr = self
+            let data = self
                 .mmap
-                .as_ptr()
-                .byte_offset((desc.addr - self.head_room as u64) as _)
-                as *mut u8;
-            let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
+                .ptr
+                .byte_offset((desc.addr - self.head_room as u64) as _);
 
             Packet {
                 data,
+                capacity: self.frame_size,
                 head: self.head_room,
                 tail: self.head_room + desc.len as usize,
-                base: self.mmap.as_ptr(),
+                base: self.mmap.ptr,
                 options: desc.options | self.options,
             }
         }
@@ -143,19 +142,20 @@ impl Umem {
     pub unsafe fn alloc(&mut self) -> Option<Packet> {
         let addr = self.available.pop_front()?;
 
+        // SAFETY: The free list of addresses will always be within the range
+        // of the mmap
         unsafe {
-            let addr = self
+            let data = self
                 .mmap
-                .as_ptr()
-                .byte_offset((addr + libc::xdp::XDP_PACKET_HEADROOM) as _)
-                as *mut u8;
-            let data = std::slice::from_raw_parts_mut(addr, self.frame_size);
+                .ptr
+                .byte_offset((addr + libc::xdp::XDP_PACKET_HEADROOM) as _);
 
             Some(Packet {
                 data,
+                capacity: self.frame_size,
                 head: self.head_room,
                 tail: self.head_room,
-                base: self.mmap.as_ptr(),
+                base: self.mmap.ptr,
                 options: self.options,
             })
         }
@@ -175,18 +175,19 @@ impl Umem {
     #[inline]
     pub fn free_packet(&mut self, packet: Packet) {
         debug_assert_eq!(
-            packet.base,
-            self.mmap.as_ptr(),
+            packet.base, self.mmap.ptr,
             "the packet was not allocated from this Umem"
         );
 
-        self.free_addr(unsafe {
-            packet
-                .data
-                .as_ptr()
-                .byte_offset(packet.head as _)
-                .offset_from(packet.base) as _
-        });
+        self.free_addr(
+            // SAFETY: We've checked that the packet is owned by this Umem
+            unsafe {
+                packet
+                    .data
+                    .byte_offset(packet.head as _)
+                    .offset_from(packet.base) as _
+            },
+        );
     }
 
     /// The equivalent of [`Self::free_addr`], but returns the timestamp the
@@ -197,12 +198,15 @@ impl Umem {
 
         let align_offset = address % self.frame_size as u64;
         let timestamp = if align_offset >= std::mem::size_of::<xsk_tx_metadata>() as u64 {
+            // SAFETY: This is a pod, so even if this wasn't actually enabled when
+            // the packet was enqueued, it shouldn't result in UB
             unsafe {
-                let tx_meta = &*(self
-                    .mmap
-                    .as_ptr()
-                    .byte_offset((address - std::mem::size_of::<xsk_tx_metadata>() as u64) as _)
-                    .cast::<xsk_tx_metadata>());
+                let tx_meta = std::ptr::read_unaligned(
+                    self.mmap
+                        .ptr
+                        .byte_offset((address - std::mem::size_of::<xsk_tx_metadata>() as u64) as _)
+                        .cast::<xsk_tx_metadata>(),
+                );
                 tx_meta.offload.completion
             }
         } else {

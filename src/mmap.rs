@@ -18,7 +18,7 @@ fn page_size() -> usize {
 }
 
 pub struct Mmap {
-    addr: *mut std::ffi::c_void,
+    pub(crate) ptr: *mut u8,
     len: usize,
 }
 
@@ -54,6 +54,7 @@ impl Mmap {
         flags: mmap::Flags::Enum,
         file: i32,
     ) -> std::io::Result<Self> {
+        // SAFETY: syscalls
         unsafe {
             let alignment = offset % page_size() as u64;
             let aligned_offset = offset - alignment;
@@ -70,33 +71,25 @@ impl Mmap {
                 Err(std::io::Error::last_os_error())
             } else {
                 Ok(Self {
-                    addr: base.add(alignment as _),
+                    ptr: base.add(alignment as _).cast(),
                     len: length,
                 })
             }
         }
     }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
 }
 
-unsafe impl Sync for Mmap {}
+//unsafe impl Sync for Mmap {}
 unsafe impl Send for Mmap {}
-
-impl std::ops::Deref for Mmap {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { std::slice::from_raw_parts(self.addr.cast(), self.len) }
-    }
-}
-
-impl std::ops::DerefMut for Mmap {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { std::slice::from_raw_parts_mut(self.addr.cast(), self.len) }
-    }
-}
 
 impl Drop for Mmap {
     fn drop(&mut self) {
-        unsafe { mmap::munmap(self.addr, self.len) };
+        // SAFETY: syscall, the pointer is validated before we create an Mmap
+        unsafe { mmap::munmap(self.ptr.cast(), self.len) };
     }
 }

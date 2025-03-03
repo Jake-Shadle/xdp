@@ -238,7 +238,7 @@ impl XdpSocketBuilder {
         }
 
         let umem_reg = xdp::XdpUmemReg {
-            addr: umem.mmap.as_ptr() as _,
+            addr: umem.mmap.ptr as _,
             len: umem.mmap.len() as _,
             chunk_size: umem.frame_size as _,
             headroom: umem.head_room as _,

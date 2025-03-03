@@ -130,12 +130,11 @@ pub enum CsumOffload {
 /// │               │                    │        │          │    
 ///  head            +14                  +34      +42        tail
 /// ```
-///
-///
 pub struct Packet {
     /// The entire packet buffer, including headroom, initialized packet contents,
     /// and uninitialized/empty remainder
-    pub(crate) data: &'static mut [u8],
+    pub(crate) data: *mut u8,
+    pub(crate) capacity: usize,
     /// The offset in data where the packet starts
     pub(crate) head: usize,
     /// The offset in data where the packet ends
@@ -148,16 +147,14 @@ impl Packet {
     /// Only used for testing
     #[doc(hidden)]
     pub fn testing_new(buf: &mut [u8; 2 * 1024]) -> Self {
-        unsafe {
-            Self {
-                data: std::mem::transmute::<&mut [u8], &'static mut [u8]>(
-                    &mut buf[libc::xdp::XDP_PACKET_HEADROOM as usize..],
-                ),
-                head: 0,
-                tail: 0,
-                base: std::ptr::null(),
-                options: 0,
-            }
+        let data = &mut buf[libc::xdp::XDP_PACKET_HEADROOM as usize..];
+        Self {
+            data: data.as_mut_ptr(),
+            capacity: data.len(),
+            head: 0,
+            tail: 0,
+            base: std::ptr::null(),
+            options: 0,
         }
     }
 
@@ -179,7 +176,7 @@ impl Packet {
     /// part of every packet
     #[inline]
     pub fn capacity(&self) -> usize {
-        self.data.len()
+        self.capacity
     }
 
     /// Resets the tail of this packet, causing it to become empty
@@ -254,7 +251,7 @@ impl Packet {
             self.tail -= diff;
         } else {
             let diff = diff as usize;
-            if self.tail + diff > self.data.len() {
+            if self.tail + diff > self.capacity {
                 return Err(PacketError::InvalidPacketLength {});
             }
 
@@ -289,7 +286,8 @@ impl Packet {
             });
         }
 
-        Ok(unsafe { std::ptr::read_unaligned(self.data.as_ptr().byte_offset(start as _).cast()) })
+        // SAFETY: we've validated the pointer read is within bounds
+        Ok(unsafe { std::ptr::read_unaligned(self.data.byte_offset(start as _).cast()) })
     }
 
     /// Writes the contents of `item` at the specified `offset`
@@ -320,12 +318,10 @@ impl Packet {
             });
         }
 
+        // SAFETY: we've validated the pointer write is within bounds
         unsafe {
             std::ptr::write_unaligned(
-                self.data
-                    .as_mut_ptr()
-                    .byte_offset((self.head + offset) as _)
-                    .cast(),
+                self.data.byte_offset((self.head + offset) as _).cast(),
                 item,
             );
         }
@@ -353,7 +349,14 @@ impl Packet {
             });
         }
 
-        array.copy_from_slice(&self.data[start..start + N]);
+        // SAFETY: we've validated the range of data we are reading is valid
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.data.byte_offset(offset as _),
+                array.as_mut_ptr(),
+                N,
+            );
+        }
         Ok(())
     }
 
@@ -366,7 +369,7 @@ impl Packet {
     /// - The offset + `slice.len()` would exceed the capacity
     #[inline]
     pub fn insert(&mut self, offset: usize, slice: &[u8]) -> Result<(), PacketError> {
-        if self.tail + slice.len() > self.data.len() {
+        if self.tail + slice.len() > self.capacity {
             return Err(PacketError::InvalidPacketLength {});
         } else if offset > self.tail {
             return Err(PacketError::InvalidOffset {
@@ -377,19 +380,26 @@ impl Packet {
 
         let adjusted_offset = self.head + offset;
         let shift = self.tail + self.head - adjusted_offset;
-        if shift > 0 {
-            unsafe {
-                // Note that dst is declared before src, otherwise miri complains about UB
-                let dst = self
-                    .data
-                    .as_mut_ptr()
-                    .byte_offset((adjusted_offset + slice.len()) as isize);
-                let src = self.data.as_ptr().byte_offset(adjusted_offset as isize);
-                std::ptr::copy(src, dst, shift);
+
+        // SAFETY: we validate we're within bounds before doing any writes to the
+        // pointer, which is alive as long as the owning mmap
+        unsafe {
+            if shift > 0 {
+                std::ptr::copy(
+                    self.data.byte_offset(adjusted_offset as isize),
+                    self.data
+                        .byte_offset((adjusted_offset + slice.len()) as isize),
+                    shift,
+                );
             }
+
+            std::ptr::copy_nonoverlapping(
+                slice.as_ptr(),
+                self.data.byte_offset(adjusted_offset as _),
+                slice.len(),
+            );
         }
 
-        self.data[adjusted_offset..adjusted_offset + slice.len()].copy_from_slice(slice);
         self.tail += slice.len();
         Ok(())
     }
@@ -453,23 +463,28 @@ impl Packet {
 impl std::ops::Deref for Packet {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
-        &self.data[self.head..self.tail]
+        // SAFETY: the pointer is valid as long as the mmap is alive
+        unsafe { &std::slice::from_raw_parts(self.data, self.capacity)[self.head..self.tail] }
     }
 }
 
 impl std::ops::DerefMut for Packet {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data[self.head..self.tail]
+        // SAFETY: the pointer is valid as long as the mmap is alive
+        unsafe {
+            &mut std::slice::from_raw_parts_mut(self.data, self.capacity)[self.head..self.tail]
+        }
     }
 }
 
 impl From<Packet> for libc::xdp::xdp_desc {
     fn from(packet: Packet) -> Self {
         libc::xdp::xdp_desc {
+            // SAFETY: the pointer is valid as long as the mmap it is allocated
+            // from is alive
             addr: unsafe {
                 packet
                     .data
-                    .as_ptr()
                     .byte_offset(packet.head as _)
                     .offset_from(packet.base) as _
             },
