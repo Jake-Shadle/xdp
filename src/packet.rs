@@ -36,6 +36,10 @@ pub enum PacketError {
         /// The length of the actual valid contents
         length: usize,
     },
+    /// TX checksum offload is not supported
+    ChecksumUnsupported,
+    /// TX timestamp is not supported
+    TimestampUnsupported,
 }
 
 impl PacketError {
@@ -47,6 +51,8 @@ impl PacketError {
             Self::InvalidPacketLength {} => "invalid packet length",
             Self::InvalidOffset { .. } => "invalid offset",
             Self::InsufficientData { .. } => "insufficient data",
+            Self::ChecksumUnsupported => "TX checksum unsupported",
+            Self::TimestampUnsupported => "TX timestamp unsupported",
         }
     }
 }
@@ -75,12 +81,16 @@ pub unsafe trait Pod: Sized {
     /// Gets a zeroed [`Self`]
     #[inline]
     fn zeroed() -> Self {
+        // SAFETY: by implementing Pod the user is saying that an all zero block
+        // is a valid representation of this type
         unsafe { std::mem::zeroed() }
     }
 
     /// Gets [`Self`] as a byte slice
     #[inline]
     fn as_bytes(&self) -> &[u8] {
+        // SAFETY: by implementing Pod the user is saying that the struct can be
+        // represented safely by a byte slice
         unsafe {
             std::slice::from_raw_parts((self as *const Self).cast(), std::mem::size_of::<Self>())
         }
@@ -199,7 +209,7 @@ impl Packet {
     /// offload or not
     #[inline]
     pub fn can_offload_checksum(&self) -> bool {
-        (self.options & libc::InternalXdpFlags::SupportsChecksumOffload as u32) != 0
+        (self.options & libc::InternalXdpFlags::SUPPORTS_CHECKSUM_OFFLOAD) != 0
     }
 
     /// Adjust the head of the packet up or down by `diff` bytes
@@ -426,13 +436,21 @@ impl Packet {
         // This would mean the user is making a request that won't actually do anything
         debug_assert!(request_timestamp || matches!(csum, CsumOffload::Request { .. }));
 
-        if self.head < std::mem::size_of::<xdp::xsk_tx_metadata>() {
-            return Err(PacketError::InsufficientHeadroom {
-                diff: std::mem::size_of::<xdp::xsk_tx_metadata>(),
-                head: self.head,
-            });
+        if matches!(csum, CsumOffload::Request { .. })
+            && (self.options & libc::InternalXdpFlags::SUPPORTS_CHECKSUM_OFFLOAD) == 0
+        {
+            return Err(PacketError::ChecksumUnsupported);
+        } else if request_timestamp
+            && (self.options & libc::InternalXdpFlags::SUPPORTS_TIMESTAMP) == 0
+        {
+            return Err(PacketError::TimestampUnsupported);
         }
 
+        // SAFETY: While this looks pretty dangerous because we are getting a pointer
+        // before the base packet, it's actually safe as the presence of either the
+        // checksum offload or timestamp flags means the umem was registered with
+        // space for an xsk_tx_metadata that the kernel will also know the location
+        // of
         unsafe {
             let mut tx_meta = std::mem::zeroed::<xdp::xsk_tx_metadata>();
 
@@ -447,7 +465,9 @@ impl Packet {
 
             std::ptr::write_unaligned(
                 self.data
-                    .byte_offset((self.head - std::mem::size_of::<xdp::xsk_tx_metadata>()) as _)
+                    .byte_offset(
+                        self.head as isize - std::mem::size_of::<xdp::xsk_tx_metadata>() as isize,
+                    )
                     .cast(),
                 tx_meta,
             );
@@ -488,7 +508,7 @@ impl From<Packet> for libc::xdp::xdp_desc {
                     .offset_from(packet.base) as _
             },
             len: (packet.tail - packet.head) as _,
-            options: packet.options & !(libc::InternalXdpFlags::Mask as u32),
+            options: packet.options & !libc::InternalXdpFlags::MASK,
         }
     }
 }

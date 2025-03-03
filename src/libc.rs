@@ -17,17 +17,17 @@ use std::{ffi::c_void, os::fd::RawFd};
 
 /// Internal flags to enable TX offload features if they were enabled at
 /// socket creation
-#[derive(Copy, Clone)]
-#[repr(u32)]
-pub enum InternalXdpFlags {
-    /// TX checksum offload is enabled
-    SupportsChecksumOffload = 1 << 31,
-    /// TX checksum offload is enabled in software
-    SoftwareOffload = (1 << 30) | (1 << 31),
+pub(crate) mod InternalXdpFlags {
+    pub type Enum = u32;
+
+    /// TX checksum offload is supported
+    pub const SUPPORTS_CHECKSUM_OFFLOAD: Enum = 1 << 31;
+    /// TX checksum offload is done in software rather than hardware
+    pub const USE_SOFTWARE_OFFLOAD: Enum = SUPPORTS_CHECKSUM_OFFLOAD | (1 << 30);
     /// TX completion timestamp is supported
-    CompletionTimestamp = 1 << 29,
+    pub const SUPPORTS_TIMESTAMP: Enum = 1 << 29;
     /// Mask of valid flags
-    Mask = 0xf0000000,
+    pub const MASK: Enum = 0xf0000000;
 }
 
 /// The bindings specific to the various rings used by `AF_XDP` sockets.

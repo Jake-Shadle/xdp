@@ -231,12 +231,12 @@ impl XdpSocketBuilder {
             flags |= xdp::UmemFlags::XDP_UMEM_UNALIGNED_CHUNK_FLAG;
         }
 
-        if umem.options & InternalXdpFlags::SupportsChecksumOffload as u32 != 0 {
+        if umem.options != 0 {
             // This value is only available in very recent ~6.11 kernels and was introduced
             // for those who didn't zero initialize xdp_umem_reg
             flags |= xdp::UmemFlags::XDP_UMEM_TX_METADATA_LEN;
 
-            if umem.options & InternalXdpFlags::SoftwareOffload as u32 != 0 {
+            if umem.options & InternalXdpFlags::USE_SOFTWARE_OFFLOAD != 0 {
                 flags |= xdp::UmemFlags::XDP_UMEM_TX_SW_CSUM;
             }
         }

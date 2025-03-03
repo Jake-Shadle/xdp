@@ -73,7 +73,9 @@ pub struct Umem {
     /// data when receiving, which allows the packet to grow downward when eg.
     /// changing from IPv4 -> IPv6 without needing to copying data upwards
     pub(crate) head_room: usize,
-    pub(crate) options: u32,
+    /// Flags that control how the umem is registered and thus what capabilities
+    /// each packet has
+    pub(crate) options: InternalXdpFlags::Enum,
 }
 
 impl Umem {
@@ -89,17 +91,9 @@ impl Umem {
             mmap,
             available,
             frame_size: cfg.frame_size as usize - libc::xdp::XDP_PACKET_HEADROOM as usize,
-            frame_mask: !(cfg.frame_size as u64 - 1),
+            frame_mask: cfg.frame_mask,
             head_room: cfg.head_room as _,
-            options: if cfg.tx_metadata {
-                InternalXdpFlags::SupportsChecksumOffload as u32
-            } else {
-                0
-            } | if cfg.software_checksum {
-                InternalXdpFlags::SoftwareOffload as u32
-            } else {
-                0
-            },
+            options: cfg.options,
         })
     }
 
@@ -237,15 +231,14 @@ pub struct UmemCfgBuilder {
     pub frame_count: u32,
     /// If true, the [`Umem`] will be registered with the socket with an
     /// additional section before the packet that may be filled with TX metadata
-    /// that either request a checksum be calculated by the NIC, and/or that the
+    /// that either request a checksum be calculated by the NIC
+    pub tx_checksum: bool,
+    /// If true, the [`Umem`] will be , and/or that the
     /// transmission timestamp is set before being added to the completion queue
-    pub tx_metadata: bool,
+    pub tx_timestamp: bool,
     /// For testing purposes only, enables the
     /// [`libc::xdp::UmemFlags::XDP_UMEM_TX_SW_CSUM`] flag so the checksum is
     /// calculated by the driver in software
-    ///
-    /// Note that [`Self::tx_metadata`] must also be set to true when using
-    /// this option
     #[cfg(debug_assertions)]
     pub software_checksum: bool,
 }
@@ -256,7 +249,8 @@ impl Default for UmemCfgBuilder {
             frame_size: FrameSize::FourK, // XSK_UMEM_DEFAULT_FRAME_SIZE
             head_room: 0,
             frame_count: 8 * 1024,
-            tx_metadata: false,
+            tx_checksum: false,
+            tx_timestamp: false,
             #[cfg(debug_assertions)]
             software_checksum: false,
         }
@@ -264,9 +258,22 @@ impl Default for UmemCfgBuilder {
 }
 
 impl UmemCfgBuilder {
+    /// Creates a builder with TX checksum offload and/or timestamping if supported
+    /// by the NIC
+    pub fn new(tx_flags: crate::nic::XdpTxMetadata) -> Self {
+        Self {
+            tx_checksum: tx_flags.checksum(),
+            tx_timestamp: tx_flags.timestamp(),
+            ..Default::default()
+        }
+    }
+
     /// Attempts build a [`UmemCfg`] that can be used with [`Umem::map`]
     pub fn build(self) -> Result<UmemCfg, Error> {
         let frame_size = self.frame_size.try_into()?;
+        // For now we only allow 2k and 4k sizes, but if we supported unaligned
+        // frames in the future we'd need to change this
+        let frame_mask = !(frame_size as u64 - 1);
 
         let head_room = within_range!(
             self,
@@ -275,15 +282,35 @@ impl UmemCfgBuilder {
         );
         let frame_count = within_range!(self, frame_count, 1..u32::MAX as _);
 
+        let total_size = frame_count as usize * frame_size as usize;
+        if total_size > isize::MAX as usize {
+            return Err(Error::Cfg(crate::error::ConfigError {
+                name: "frame_count * frame_size",
+                kind: crate::error::ConfigErrorKind::OutOfRange {
+                    size: total_size,
+                    range: frame_size as usize..isize::MAX as usize,
+                },
+            }));
+        }
+
+        let mut options = 0;
+        if self.tx_checksum {
+            options |= InternalXdpFlags::SUPPORTS_CHECKSUM_OFFLOAD;
+        }
+        if self.tx_timestamp {
+            options |= InternalXdpFlags::SUPPORTS_TIMESTAMP;
+        }
+        #[cfg(debug_assertions)]
+        if self.software_checksum {
+            options |= InternalXdpFlags::USE_SOFTWARE_OFFLOAD;
+        }
+
         Ok(UmemCfg {
             frame_size,
+            frame_mask,
             frame_count,
             head_room,
-            tx_metadata: self.tx_metadata,
-            #[cfg(debug_assertions)]
-            software_checksum: self.software_checksum,
-            #[cfg(not(debug_assertions))]
-            software_checksum: false,
+            options,
         })
     }
 }
@@ -292,8 +319,8 @@ impl UmemCfgBuilder {
 #[derive(Copy, Clone)]
 pub struct UmemCfg {
     frame_size: u32,
+    frame_mask: u64,
     frame_count: u32,
     head_room: u32,
-    tx_metadata: bool,
-    software_checksum: bool,
+    options: InternalXdpFlags::Enum,
 }

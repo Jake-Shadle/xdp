@@ -84,7 +84,7 @@ impl Mmap {
     }
 }
 
-//unsafe impl Sync for Mmap {}
+// SAFETY: Safe to send across threads
 unsafe impl Send for Mmap {}
 
 impl Drop for Mmap {
