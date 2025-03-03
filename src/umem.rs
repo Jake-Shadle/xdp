@@ -80,6 +80,12 @@ pub struct Umem {
 
 impl Umem {
     /// Attempts to build a [`Self`] by mapping a memory region
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut _umem = xdp::Umem::map(xdp::umem::UmemCfgBuilder::default().build().expect("failed to build umem cfg")).expect("failed to map memory");
+    /// ```
     pub fn map(cfg: UmemCfg) -> std::io::Result<Self> {
         let mmap = crate::mmap::Mmap::map_umem(cfg.frame_count as usize * cfg.frame_size as usize)?;
 
@@ -105,7 +111,7 @@ impl Umem {
     /// The [`Packet`] returned by this function is pointing to memory owned by
     /// this [`Umem`], it must not outlive this [`Umem`]
     #[inline]
-    pub unsafe fn packet(&self, desc: xdp_desc) -> Packet {
+    pub(crate) unsafe fn packet(&self, desc: xdp_desc) -> Packet {
         // SAFETY: Barring kernel bugs, we should only ever get valid addresses
         // within the range of our map
         unsafe {
@@ -132,6 +138,17 @@ impl Umem {
     ///
     /// The [`Packet`] returned by this function is pointing to memory owned by
     /// this [`Umem`], it must not outlive this [`Umem`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut umem = xdp::Umem::map(xdp::umem::UmemCfgBuilder::default().build().expect("failed to build umem cfg")).expect("failed to map memory");
+    ///
+    /// unsafe {
+    ///     let mut packet = umem.alloc().expect("failed to allocate packet");
+    ///     assert!(packet.is_empty());
+    /// }
+    /// ```
     #[inline]
     pub unsafe fn alloc(&mut self) -> Option<Packet> {
         let addr = self.available.pop_front()?;
@@ -166,6 +183,28 @@ impl Umem {
 
     /// Returns the memory block where the [`Packet`] resides to the available
     /// pool for future use
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut umem = xdp::Umem::map(xdp::umem::UmemCfgBuilder {
+    ///     frame_count: 1,
+    ///     ..Default::default()
+    /// }.build().expect("failed to build umem cfg")).expect("failed to map memory");
+    ///
+    /// unsafe {
+    ///     let mut packet = umem.alloc().expect("failed to allocate packet");
+    ///     packet.insert(0, &[1, 2, 3, 4]).expect("failed to insert bytes");
+    ///     // Only 1 frame was requested when building the umem
+    ///     assert!(umem.alloc().is_none());
+    ///     umem.free_packet(packet);
+    ///     let mut packet = umem.alloc().expect("failed to allocate packet");
+    ///     // The packet will be the same memory region, but will be empty, but
+    ///     // we can cheat and recover the data we wrote
+    ///     packet.adjust_tail(4).unwrap();
+    ///     assert_eq!(&packet[..4], &[1, 2, 3, 4]);
+    /// }
+    /// ```
     #[inline]
     pub fn free_packet(&mut self, packet: Packet) {
         debug_assert_eq!(
@@ -220,7 +259,7 @@ impl Umem {
 /// Builder for a [`Umem`].
 ///
 /// Using [`UmemCfgBuilder::default`] will result in a [`Umem`] with 8k frames of
-/// size 4k for a total of 32MiB.
+/// size 4KiB for a total of 32MiB.
 pub struct UmemCfgBuilder {
     /// The size of each packet/chunk. Defaults to 4096.
     pub frame_size: FrameSize,
@@ -260,6 +299,14 @@ impl Default for UmemCfgBuilder {
 impl UmemCfgBuilder {
     /// Creates a builder with TX checksum offload and/or timestamping if supported
     /// by the NIC
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let nic = xdp::nic::NicIndex(0);
+    /// let caps = nic.query_capabilities().expect("failed to query NIC capabilities");
+    /// let _umem_cfg = xdp::umem::UmemCfgBuilder::new(caps.tx_metadata).build().expect("failed to build umem cfg");
+    /// ```
     pub fn new(tx_flags: crate::nic::XdpTxMetadata) -> Self {
         Self {
             tx_checksum: tx_flags.checksum(),
@@ -269,6 +316,13 @@ impl UmemCfgBuilder {
     }
 
     /// Attempts build a [`UmemCfg`] that can be used with [`Umem::map`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let umem_cfg = xdp::umem::UmemCfgBuilder::default().build().expect("failed to build umem cfg");
+    /// let umem = xdp::Umem::map(umem_cfg).expect("failed to map umem");
+    /// ```
     pub fn build(self) -> Result<UmemCfg, Error> {
         let frame_size = self.frame_size.try_into()?;
         // For now we only allow 2k and 4k sizes, but if we supported unaligned
