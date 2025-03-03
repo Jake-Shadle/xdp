@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#16](https://github.com/Jake-Shadle/xdp/pull/16) changed `RxRing` and `TxRing` to use the new `slab::Slab` trait.
+- [PR#16](https://github.com/Jake-Shadle/xdp/pull/16) moved `HeapSlab` to the new `slab` module, and made it implement `slab::Slab`, changing it so that items are always pushed to the front and popped from the back, unlike the previous implementation which allowed both.
+
+### Added
+- [PR#16](https://github.com/Jake-Shadle/xdp/pull/16) added a new `slab::StackSlab<N>` fixed size ring buffer that implements `slab::Slab`.
+
+### Fixed
+- [PR#16](https://github.com/Jake-Shadle/xdp/pull/16) fixed some undefined behavior in the netlink code used to query NIC capabilities.
+- [PR#16](https://github.com/Jake-Shadle/xdp/pull/16) fixed a bug where TX metadata would not be added and would return an error if the packet headroom was not large enough for the metadata, this is irrelevant.
+
 ## [0.5.0] - 2025-02-27
 ### Changed
 - [PR#15](https://github.com/Jake-Shadle/xdp/pull/15) renamed `UdpPacket` -> `UdpHeaders`, and changed the contents to be the actual headers that can be de/serialized from/to the packet buffer.
