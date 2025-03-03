@@ -2,8 +2,8 @@
 //! sent by the NIC the ring is bound to
 
 use crate::{
-    HeapSlab,
     libc::{self, rings},
+    slab::Slab,
 };
 
 /// The ring used to enqueue packets for the kernel to send
@@ -56,7 +56,7 @@ impl TxRing {
     /// The number of packets that were actually enqueued. This number can be
     /// lower than the requested `num_packets` if the ring doesn't have sufficient
     /// capacity
-    pub unsafe fn send(&mut self, packets: &mut HeapSlab) -> usize {
+    pub unsafe fn send<S: Slab>(&mut self, packets: &mut S) -> usize {
         let requested = packets.len();
         if requested == 0 {
             return 0;
@@ -67,7 +67,7 @@ impl TxRing {
         if actual > 0 {
             let mask = self.ring.mask();
             for i in idx..idx + actual {
-                let Some(packet) = packets.pop_front() else {
+                let Some(packet) = packets.pop_back() else {
                     unreachable!()
                 };
 
@@ -109,7 +109,11 @@ impl WakableTxRing {
     /// The number of packets that were actually enqueued. This number can be
     /// lower than the requested `num_packets` if the ring doesn't have sufficient
     /// capacity
-    pub unsafe fn send(&mut self, packets: &mut HeapSlab, wakeup: bool) -> std::io::Result<usize> {
+    pub unsafe fn send<S: Slab>(
+        &mut self,
+        packets: &mut S,
+        wakeup: bool,
+    ) -> std::io::Result<usize> {
         // SAFETY: TxRing::send is unsafe
         let queued = unsafe { self.inner.send(packets) };
 

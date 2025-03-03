@@ -477,6 +477,19 @@ impl Packet {
 
         Ok(())
     }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn inner_copy(&mut self) -> Self {
+        Self {
+            data: self.data,
+            capacity: self.capacity,
+            head: self.head,
+            tail: self.tail,
+            base: self.base,
+            options: self.options,
+        }
+    }
 }
 
 impl std::ops::Deref for Packet {

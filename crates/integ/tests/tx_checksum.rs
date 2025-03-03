@@ -1,6 +1,7 @@
 use test_utils::netlink::VethPair;
 use xdp::{
     packet::{net_types as nt, *},
+    slab::Slab,
     socket::*,
     umem::*,
     *,
@@ -113,7 +114,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
     std::thread::spawn(move || {
         let timeout = PollTimeout::new(Some(std::time::Duration::from_millis(100)));
 
-        let mut slab = xdp::HeapSlab::with_capacity(BATCH_SIZE);
+        let mut slab = xdp::slab::StackSlab::<BATCH_SIZE>::new();
 
         unsafe {
             poll_loop!({
@@ -161,7 +162,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
             new.set_packet_headers(&mut packet, true).unwrap();
             println!("Full checksum: {full_checksum:04x}");
 
-            slab.push_back(packet);
+            slab.push_front(packet);
             assert_eq!(tx.send(&mut slab), 1);
 
             poll_loop!({
@@ -214,7 +215,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 packet.calc_udp_checksum().unwrap()
             );
 
-            slab.push_back(packet);
+            slab.push_front(packet);
             assert_eq!(tx.send(&mut slab), 1);
 
             poll_loop!({
