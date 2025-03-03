@@ -22,6 +22,7 @@ pub fn to_u16(mut csum: u32) -> u16 {
 /// Add with carry
 #[inline]
 pub fn add(mut a: u32, b: u32) -> u32 {
+    // SAFETY: asm
     unsafe {
         std::arch::asm!(
             "addl {b:e}, {a:e}",
@@ -84,6 +85,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
     fn update_40(mut sum: u64, bytes: &[u8]) -> u64 {
         debug_assert_eq!(bytes.len(), 40);
 
+        // SAFETY: asm
         unsafe {
             std::arch::asm!(
                 "addq 0*8({buf}), {sum}",
@@ -111,6 +113,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
             buf = &buf[80..];
         }
 
+        // SAFETY: asm
         unsafe {
             std::arch::asm!(
                 "addq {0}, {sum}",
@@ -133,6 +136,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
 
     let len = buf.len();
     if len & 32 != 0 {
+        // SAFETY: asm
         unsafe {
             std::arch::asm!(
                 "addq 0*8({buf}), {sum}",
@@ -150,6 +154,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
     }
 
     if len & 16 != 0 {
+        // SAFETY: asm
         unsafe {
             std::arch::asm!(
                 "addq 0*8({buf}), {sum}",
@@ -165,6 +170,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
     }
 
     if len & 8 != 0 {
+        // SAFETY: asm
         unsafe {
             std::arch::asm!(
                 "addq 0*8({buf}), {sum}",
@@ -183,6 +189,7 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
         // of the whole u64
         let shift = ((-(len as i64) << 3) & 63) as u32;
 
+        // SAFETY: asm
         unsafe {
             // The kernel's load_unaligned_zeropad needs to take into account
             // this load potentially crossing page boundaries, but we don't have
@@ -295,6 +302,7 @@ impl super::Packet {
                 let udp_hdr = self.read::<UdpHdr>(offset)?;
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
+                // SAFETY: asm
                 unsafe {
                     let mut sum = 0;
 
@@ -324,6 +332,7 @@ impl super::Packet {
                 let udp_hdr = self.read::<UdpHdr>(offset)?;
 
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
+                // SAFETY: asm
                 unsafe {
                     let mut sum = ((udp_hdr.length.host() as u32).to_be() as u64)
                         .wrapping_add((IpProto::Udp as u64).to_be());
@@ -392,6 +401,7 @@ impl nt::UdpHeaders {
         match &self.ip {
             nt::IpHdr::V4(v4) => {
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv4_pseudo_header
+                // SAFETY: asm
                 unsafe {
                     std::arch::asm!(
                         "addq {pseudo_udp}, {sum}",
@@ -415,6 +425,7 @@ impl nt::UdpHeaders {
             }
             nt::IpHdr::V6(v6) => {
                 // https://en.wikipedia.org/wiki/User_Datagram_Protocol#IPv6_pseudo_header
+                // SAFETY: asm
                 unsafe {
                     let source = v6.source;
                     let destination = v6.destination;

@@ -229,6 +229,7 @@ pub mod xdp {
         pub offload: xsk_tx_offload,
     }
 
+    // SAFETY: POD
     unsafe impl crate::packet::Pod for xsk_tx_metadata {}
 
     /// Flags available when registering a [`crate::Umem`] with a socket

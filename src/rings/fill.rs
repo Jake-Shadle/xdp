@@ -104,6 +104,7 @@ impl WakableFillRing {
         num_packets: usize,
         wakeup: bool,
     ) -> std::io::Result<usize> {
+        // SAFETY: FillRing::enqueue is unsafe
         let queued = unsafe { self.inner.enqueue(umem, num_packets) };
 
         if queued > 0 && wakeup {

@@ -320,6 +320,7 @@ impl XdpSocketBuilder {
             sxdp_shared_umem_fd: 0,
         };
 
+        // SAFETY: syscall, all inputs are valid
         if unsafe {
             socket::bind(
                 self.sock.as_raw_fd(),
@@ -336,15 +337,7 @@ impl XdpSocketBuilder {
 
     #[inline]
     fn set_sockopt<T>(&mut self, name: OptName, val: &T) -> Result<(), SocketError> {
-        // let level = if matches!(
-        //     name,
-        //     OptName::PreferBusyPoll | OptName::BusyPoll | OptName::BusyPollBudget
-        // ) {
-        //     libc::SOL_SOCKET
-        // } else {
-        //     libc::SOL_XDP
-        // };
-
+        // SAFETY: syscall, all inputs are valid
         if unsafe {
             libc::socket::setsockopt(
                 self.sock.as_raw_fd(),
@@ -424,6 +417,7 @@ impl XdpSocket {
 
     #[inline]
     fn poll_inner(&self, events: i16, timeout: PollTimeout) -> std::io::Result<bool> {
+        // SAFETY: syscall, all inputs are valid
         let ret = unsafe {
             socket::poll(
                 &mut socket::pollfd {

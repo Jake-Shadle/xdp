@@ -110,6 +110,7 @@ impl WakableTxRing {
     /// lower than the requested `num_packets` if the ring doesn't have sufficient
     /// capacity
     pub unsafe fn send(&mut self, packets: &mut HeapSlab, wakeup: bool) -> std::io::Result<usize> {
+        // SAFETY: TxRing::send is unsafe
         let queued = unsafe { self.inner.send(packets) };
 
         if queued > 0 && wakeup {

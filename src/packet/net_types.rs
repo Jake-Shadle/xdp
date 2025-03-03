@@ -10,6 +10,7 @@ use std::{
 
 macro_rules! len {
     ($record:ty) => {
+        // SAFETY: We only use this macro on types it is safe for
         unsafe impl Pod for $record {}
 
         impl $record {

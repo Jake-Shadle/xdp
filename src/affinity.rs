@@ -13,6 +13,7 @@ impl CoreId {
     /// Sets the core affinity for the current thread
     #[inline]
     pub fn set_affinity(self) -> Result<()> {
+        // SAFETY: syscall
         unsafe {
             let mut set = mem::zeroed();
 
@@ -63,6 +64,7 @@ impl CoreIds {
     /// Creates an iterator over the available CPUs
     #[inline]
     pub fn new() -> Result<Self> {
+        // SAFETY: syscall
         let set = unsafe {
             let mut set = mem::zeroed();
 

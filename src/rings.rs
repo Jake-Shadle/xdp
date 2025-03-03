@@ -260,6 +260,7 @@ impl<T> std::ops::Index<usize> for XskProducer<T> {
 
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
+        // SAFETY: each ring impl ensures the index is valid
         unsafe { self.0.ring.get_unchecked(index) }
     }
 }
@@ -267,6 +268,7 @@ impl<T> std::ops::Index<usize> for XskProducer<T> {
 impl<T> std::ops::IndexMut<usize> for XskProducer<T> {
     #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        // SAFETY: each ring impl ensures the index is valid
         unsafe { self.0.ring.get_unchecked_mut(index) }
     }
 }
