@@ -57,20 +57,19 @@ impl RxRing {
         let (actual, idx) = self.ring.peek(nb as _);
 
         if actual > 0 {
-            unsafe { self.do_recv(actual, idx, umem, packets) };
+            let mask = self.ring.mask();
+            for i in idx..idx + actual {
+                let desc = self.ring[i & mask];
+                packets.push_back(
+                    // SAFETY: The user is responsible for the lifetime of the
+                    // packets we are returning
+                    unsafe { umem.packet(desc) },
+                );
+            }
+
+            self.ring.release(actual as _);
         }
 
         actual
-    }
-
-    #[inline]
-    unsafe fn do_recv(&mut self, actual: usize, idx: usize, umem: &Umem, packets: &mut HeapSlab) {
-        let mask = self.ring.mask();
-        for i in idx..idx + actual {
-            let desc = self.ring[i & mask];
-            packets.push_back(unsafe { umem.packet(desc) });
-        }
-
-        self.ring.release(actual as _);
     }
 }

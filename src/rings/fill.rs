@@ -51,8 +51,8 @@ impl FillRing {
     /// lower than the requested `num_packets` if the [`Umem`] didn't have enough
     /// open slots, or the rx ring had insufficient capacity
     pub unsafe fn enqueue(&mut self, umem: &mut Umem, num_packets: usize) -> usize {
-        let mut popper = umem.popper();
-        let requested = std::cmp::min(popper.len(), num_packets);
+        let available = umem.available();
+        let requested = std::cmp::min(available.len(), num_packets);
         if requested == 0 {
             return 0;
         }
@@ -62,7 +62,7 @@ impl FillRing {
         if actual > 0 {
             let mask = self.ring.mask();
             for i in idx..idx + actual {
-                self.ring[i & mask] = popper.pop();
+                self.ring[i & mask] = available.pop_front().unwrap();
             }
 
             self.ring.submit(actual as _);

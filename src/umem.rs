@@ -214,29 +214,8 @@ impl Umem {
     }
 
     #[inline]
-    pub(crate) fn popper(&mut self) -> UmemPopper<'_> {
-        UmemPopper {
-            available: &mut self.available,
-        }
-    }
-}
-
-pub(crate) struct UmemPopper<'umem> {
-    available: &'umem mut VecDeque<u64>,
-}
-
-impl UmemPopper<'_> {
-    #[inline]
-    pub(crate) fn len(&self) -> usize {
-        self.available.len()
-    }
-
-    #[inline]
-    pub(crate) fn pop(&mut self) -> u64 {
-        let Some(addr) = self.available.pop_front() else {
-            unreachable!()
-        };
-        addr
+    pub(crate) fn available(&mut self) -> &mut VecDeque<u64> {
+        &mut self.available
     }
 }
 
