@@ -223,7 +223,11 @@ impl XdpSocketBuilder {
         cfg: &rings::RingConfig,
     ) -> Result<libc::rings::xdp_mmap_offsets, SocketError> {
         let mut flags = 0;
-        if !umem.frame_size.is_power_of_two() {
+        // Internally umem uses frame_size - head room for the capacity of
+        // each packet, but we need to readjust it here so the kernel knows
+        // the actual size
+        let chunk_size = umem.frame_size as u32 + xdp::XDP_PACKET_HEADROOM as u32;
+        if !chunk_size.is_power_of_two() {
             flags |= xdp::UmemFlags::XDP_UMEM_UNALIGNED_CHUNK_FLAG;
         }
 
@@ -240,7 +244,7 @@ impl XdpSocketBuilder {
         let umem_reg = xdp::XdpUmemReg {
             addr: umem.mmap.ptr as _,
             len: umem.mmap.len() as _,
-            chunk_size: umem.frame_size as _,
+            chunk_size,
             headroom: umem.head_room as _,
             flags,
             tx_metadata_len: if umem.options != 0 {

@@ -447,7 +447,6 @@ impl Packet {
 
             std::ptr::write_unaligned(
                 self.data
-                    .as_mut_ptr()
                     .byte_offset((self.head - std::mem::size_of::<xdp::xsk_tx_metadata>()) as _)
                     .cast(),
                 tx_meta,

@@ -88,7 +88,7 @@ impl Umem {
         Ok(Self {
             mmap,
             available,
-            frame_size: cfg.frame_size as usize - libc::xdp::XDP_PACKET_HEADROOM,
+            frame_size: cfg.frame_size as usize - libc::xdp::XDP_PACKET_HEADROOM as usize,
             frame_mask: !(cfg.frame_size as u64 - 1),
             head_room: cfg.head_room as _,
             options: if cfg.tx_metadata {
