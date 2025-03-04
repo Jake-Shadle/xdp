@@ -100,7 +100,12 @@ pub unsafe trait Pod: Sized {
 /// Configures TX checksum offload when setting TX metadata via [`Packet::set_tx_metadata`]
 pub enum CsumOffload {
     /// Requests checksum offload
-    Request(libc::xdp::xsk_tx_request),
+    Request {
+        /// The offset from the start of the packet where the checksum calculation should start
+        start: u16,
+        /// The offset from `start` where the checksum should be stored
+        offset: u16,
+    },
     /// Offload is not requested
     None,
 }
@@ -388,7 +393,6 @@ impl Packet {
     /// ```
     /// use xdp::packet::net_types;
     /// use std::net::Ipv4Addr;
-    ///
     /// # use xdp::packet::Pod;
     /// # let mut umem = xdp::Umem::map(
     /// #    xdp::umem::UmemCfgBuilder {
@@ -396,7 +400,6 @@ impl Packet {
     /// #        ..Default::default()
     /// #    }.build().unwrap()
     /// # ).expect("failed to map Umem");
-    ///
     /// # let mut packet = unsafe {
     /// #    let mut packet = umem.alloc().expect("failed to allocate packet");
     /// #    packet.adjust_tail(34).unwrap();
@@ -413,7 +416,6 @@ impl Packet {
     /// #    assert_eq!(packet.len(), net_types::EthHdr::LEN + net_types::Ipv4Hdr::LEN);
     /// #    packet
     /// # };
-    ///
     /// // Read an Ipv4 header, which directly follows an Ethernet II header
     /// let ip_hdr = packet.read::<net_types::Ipv4Hdr>(net_types::EthHdr::LEN).unwrap();
     /// assert_eq!(ip_hdr.source.host(), Ipv4Addr::new(100, 1, 2, 100).to_bits());
@@ -457,7 +459,6 @@ impl Packet {
     /// ```
     /// use xdp::packet::net_types;
     /// use std::net::Ipv4Addr;
-    ///
     /// # use xdp::packet::Pod;
     /// # let mut umem = xdp::Umem::map(
     /// #    xdp::umem::UmemCfgBuilder {
@@ -465,11 +466,9 @@ impl Packet {
     /// #        ..Default::default()
     /// #    }.build().unwrap()
     /// # ).expect("failed to map Umem");
-    ///
     /// # let mut packet = unsafe {
     /// #    umem.alloc().expect("failed to allocate packet")
     /// # };
-    ///
     /// // Extend the tail so we have enough space for the writes
     /// packet.adjust_tail(42).unwrap();
     ///
@@ -493,7 +492,10 @@ impl Packet {
     ///     check: 0,
     /// }).expect("failed to write ip hdr");
     ///
-    /// packet.insert(net_types::EthHdr::LEN + net_types::Ipv4Hdr::LEN + net_types::UdpHdr::LEN, &[0xf0; 5]).unwrap();
+    /// packet.insert(
+    ///     net_types::EthHdr::LEN + net_types::Ipv4Hdr::LEN + net_types::UdpHdr::LEN,
+    ///     &[0xf0; 5]
+    /// ).unwrap();
     /// ```
     #[inline]
     pub fn write<T: Pod>(&mut self, offset: usize, item: T) -> Result<(), PacketError> {
@@ -541,11 +543,9 @@ impl Packet {
     /// #        ..Default::default()
     /// #    }.build().unwrap()
     /// # ).expect("failed to map Umem");
-    ///
     /// # let mut packet = unsafe {
     /// #    umem.alloc().expect("failed to allocate packet")
     /// # };
-    ///
     /// // Insert a u32
     /// packet.insert(0, &0xaabbccddu32.to_ne_bytes()).unwrap();
     ///
@@ -598,11 +598,9 @@ impl Packet {
     /// #        ..Default::default()
     /// #    }.build().unwrap()
     /// # ).expect("failed to map Umem");
-    ///
     /// # let mut packet = unsafe {
     /// #    umem.alloc().expect("failed to allocate packet")
     /// # };
-    ///
     /// // Insert a u32
     /// packet.insert(0, &0xf0f1f2f3u32.to_ne_bytes()).unwrap();
     ///
@@ -696,9 +694,12 @@ impl Packet {
         unsafe {
             let mut tx_meta = std::mem::zeroed::<xdp::xsk_tx_metadata>();
 
-            if let CsumOffload::Request(csum_req) = csum {
+            if let CsumOffload::Request { start, offset } = csum {
                 tx_meta.flags |= xdp::XdpTxFlags::XDP_TXMD_FLAGS_CHECKSUM;
-                tx_meta.offload.request = csum_req;
+                tx_meta.offload.request = xdp::xsk_tx_request {
+                    csum_start: start,
+                    csum_offset: offset,
+                };
             }
 
             if request_timestamp {

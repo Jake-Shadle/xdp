@@ -198,6 +198,7 @@ impl Umem {
     ///     // Only 1 frame was requested when building the umem
     ///     assert!(umem.alloc().is_none());
     ///     umem.free_packet(packet);
+    ///
     ///     let mut packet = umem.alloc().expect("failed to allocate packet");
     ///     // The packet will be the same memory region, but will be empty, but
     ///     // we can cheat and recover the data we wrote

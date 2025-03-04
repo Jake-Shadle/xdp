@@ -359,10 +359,10 @@ impl super::Packet {
             self.write(offset, udp_hdr)?;
 
             self.set_tx_metadata(
-                crate::packet::CsumOffload::Request(crate::libc::xdp::xsk_tx_request {
-                    csum_start: offset as u16,
-                    csum_offset: std::mem::offset_of!(UdpHdr, check) as u16,
-                }),
+                crate::packet::CsumOffload::Request {
+                    start: offset as u16,
+                    offset: std::mem::offset_of!(UdpHdr, check) as u16,
+                },
                 false,
             )?;
 

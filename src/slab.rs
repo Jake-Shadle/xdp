@@ -82,8 +82,7 @@ pub const fn assert_power_of_2<const N: usize>() {
     let () = AssertPowerOf2::<N>::OK;
 }
 
-/// Slab impl macro, only public for creating testing slabs with integer types < usize
-#[cfg_attr(debug_assertions, macro_export)]
+#[cfg_attr(debug_assertions, macro_export, doc(hidden))]
 macro_rules! slab {
     ($name:ident, $int:ty) => {
         /// A stack allocated, fixed size, ring buffer
