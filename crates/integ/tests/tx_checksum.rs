@@ -12,14 +12,14 @@ use xdp::{
 /// flag
 #[test]
 fn offloads_tx_checksum() {
-    if std::env::var_os("CI").is_some() {
-        println!(
-            "::notice file={},line={}::Skipping TX offload test with sofware checksum, Ubunut kernel version is too old",
-            file!(),
-            line!()
-        );
-        return;
-    }
+    // if std::env::var_os("CI").is_some() {
+    //     println!(
+    //         "::notice file={},line={}::Skipping TX offload test with sofware checksum, Ubuntu kernel version is too old",
+    //         file!(),
+    //         line!()
+    //     );
+    //     return;
+    // }
 
     let vpair = test_utils::veth_pair!("tx_off", 0);
 
