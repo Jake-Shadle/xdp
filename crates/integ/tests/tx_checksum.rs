@@ -9,18 +9,9 @@ use xdp::{
 
 /// Validates that we can offload (most of) the layer 4 checksum calculation to
 /// hardware when the hardware + driver supports the `XDP_TXMD_FLAGS_CHECKSUM`
-/// flag
+/// flag. Note that this will fail if the kernel version is too low.
 #[test]
 fn offloads_tx_checksum() {
-    // if std::env::var_os("CI").is_some() {
-    //     println!(
-    //         "::notice file={},line={}::Skipping TX offload test with sofware checksum, Ubuntu kernel version is too old",
-    //         file!(),
-    //         line!()
-    //     );
-    //     return;
-    // }
-
     let vpair = test_utils::veth_pair!("tx_off", 0);
 
     do_checksum_test(true, &vpair);
