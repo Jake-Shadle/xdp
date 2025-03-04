@@ -4,8 +4,6 @@
 /// in a checksum field
 #[inline]
 pub fn fold_checksum(mut csum: u32) -> u16 {
-    //csum += 0xffff;
-
     csum = (csum & 0xffff) + (csum >> 16);
     csum = (csum & 0xffff) + (csum >> 16);
     !csum as u16
@@ -376,7 +374,17 @@ impl super::Packet {
             let data_offset = offset + nt::UdpHdr::LEN;
             let data_payload = &self[data_offset..self.len()];
 
-            let csum = fold_checksum(partial(data_payload, sum));
+            let mut csum = fold_checksum(partial(data_payload, sum));
+
+            // If the checksum calculation results in the value zero (all 16 bits 0)
+            // it should be sent as the ones' complement (all 1s) as a zero-value
+            // checksum indicates no checksum has been calculated.[7] In this case,
+            // any specific processing is not required at the receiver, because all
+            // 0s and all 1s are equal to zero in 1's complement arithmetic.
+            if csum == 0 {
+                csum = 0xffff;
+            }
+
             udp_hdr.check = csum;
 
             self.write(offset, udp_hdr)?;
@@ -455,6 +463,16 @@ impl nt::UdpHeaders {
         }
 
         self.udp.check = fold_checksum(finalize(sum));
+
+        // If the checksum calculation results in the value zero (all 16 bits 0)
+        // it should be sent as the ones' complement (all 1s) as a zero-value
+        // checksum indicates no checksum has been calculated.[7] In this case,
+        // any specific processing is not required at the receiver, because all
+        // 0s and all 1s are equal to zero in 1's complement arithmetic.
+        if self.udp.check == 0 {
+            self.udp.check = 0xffff;
+        }
+
         self.udp.check
     }
 }
