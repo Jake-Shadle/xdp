@@ -90,7 +90,7 @@ fn csum_ic(packet: &mut xdp::Packet) -> u16 {
 
             udp_hdr
         }
-        EtherType::Arp => unreachable!(),
+        _ => unreachable!(),
     };
 
     udp_hdr.check = 0;
@@ -152,7 +152,7 @@ fn csum_ep(packet: &mut xdp::Packet) -> u16 {
                 .unwrap()
                 .to_be()
         }
-        EtherType::Arp => unreachable!(),
+        _ => unreachable!(),
     }
 }
 

@@ -224,9 +224,9 @@ use crate::packet::net_types as nt;
 #[derive(Debug)]
 pub enum UdpCalcError {
     /// Not an IP packet
-    NotIp(nt::EtherType),
+    NotIp(nt::EtherType::Enum),
     /// Not a UDP packet
-    NotUdp(nt::IpProto),
+    NotUdp(nt::IpProto::Enum),
     /// Packet data was invalid/corrupt
     Packet(super::PacketError),
 }
@@ -350,7 +350,7 @@ impl super::Packet {
                     (finalize(sum), udp_hdr)
                 }
             }
-            EtherType::Arp => return Err(UdpCalcError::NotIp(EtherType::Arp)),
+            invalid => return Err(UdpCalcError::NotIp(invalid)),
         };
 
         let checksum = if self.can_offload_checksum() {
