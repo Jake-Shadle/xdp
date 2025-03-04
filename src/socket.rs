@@ -122,6 +122,10 @@ impl BindFlags {
 
 impl XdpSocketBuilder {
     /// Attempts to create an `AF_XDP` socket
+    ///
+    /// This creates a [`SOCK_RAW`](https://www.man7.org/linux/man-pages/man7/raw.7.html)
+    /// socket, which requires higher ([`CAP_NET_RAW`](https://www.man7.org/linux/man-pages/man7/capabilities.7.html))
+    /// privileges
     pub fn new() -> Result<Self, SocketError> {
         use std::os::fd::FromRawFd;
 

@@ -824,6 +824,63 @@ impl UdpHeaders {
     ///
     /// Errors in cases where the data can be partially parsed but the size of the
     /// packet data indicates a corrupt/invalid packet
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xdp::packet::net_types as nt;
+    /// const DATA_LEN: usize = 33;
+    ///
+    /// # use xdp::packet::Pod;
+    /// # let mut umem = xdp::Umem::map(
+    /// #    xdp::umem::UmemCfgBuilder {
+    /// #        head_room: 0,
+    /// #        ..Default::default()
+    /// #    }.build().unwrap()
+    /// # ).expect("failed to map Umem");
+    /// #
+    /// # let mut packet = unsafe {
+    /// #    let mut packet = umem.alloc().expect("failed to allocate packet");
+    /// #    packet.adjust_tail(14 + 20 + 8).unwrap();
+    /// #    packet.write(0, nt::EthHdr {
+    /// #       source: nt::MacAddress([1; 6]),
+    /// #       destination: nt::MacAddress([2; 6]),
+    /// #       ether_type: nt::EtherType::Ipv4 }
+    /// #   ).expect("failed to write ethhdr");
+    /// #
+    /// #   let mut ip = nt::Ipv4Hdr::zeroed();
+    /// #   ip.reset(64, nt::IpProto::Udp);
+    /// #   ip.source = u32::from_be_bytes([100, 1, 2, 100]).into();
+    /// #   ip.destination = u32::from_be_bytes([200, 2, 1, 200]).into();
+    /// #   ip.total_length = ((nt::Ipv4Hdr::LEN + nt::UdpHdr::LEN + DATA_LEN) as u16).into();
+    /// #   packet.write(nt::EthHdr::LEN, ip).expect("failed to write ip hdr");
+    /// #
+    /// #   packet.write(nt::EthHdr::LEN + nt::Ipv4Hdr::LEN, nt::UdpHdr {
+    /// #       source: 50000.into(),
+    /// #       destination: 80.into(),
+    /// #       length: ((nt::UdpHdr::LEN + DATA_LEN) as u16).into(),
+    /// #       check: 0,
+    /// #   }).expect("failed to write ip hdr");
+    /// #
+    /// #   packet.insert(nt::EthHdr::LEN + nt::Ipv4Hdr::LEN + nt::UdpHdr::LEN, &[0xf0; DATA_LEN]).unwrap();
+    /// #   packet.calc_udp_checksum().unwrap();
+    /// #   packet
+    /// # };
+    ///
+    /// let udp_hdrs = nt::UdpHeaders::parse_packet(&packet).expect("error parsing packet").expect("not a UDP packet");
+    ///
+    /// assert_eq!(udp_hdrs.eth.source.0, [1; 6]);
+    /// assert_eq!(udp_hdrs.eth.ether_type, nt::EtherType::Ipv4);
+    ///
+    /// let nt::IpHdr::V4(ipv4) = &udp_hdrs.ip else { unreachable!() };
+    /// assert_eq!(ipv4.destination.host(), std::net::Ipv4Addr::new(200, 2, 1, 200).to_bits());
+    ///
+    /// assert_eq!(udp_hdrs.udp.source.host(), 50000);
+    ///
+    /// assert_eq!(udp_hdrs.data_offset, nt::EthHdr::LEN + nt::Ipv4Hdr::LEN + nt::UdpHdr::LEN);
+    /// assert_eq!(udp_hdrs.data_length, DATA_LEN);
+    /// assert_eq!(&packet[udp_hdrs.data_offset..udp_hdrs.data_offset + udp_hdrs.data_length], &[0xf0; DATA_LEN]);
+    /// ```
     pub fn parse_packet(packet: &super::Packet) -> Result<Option<Self>, super::PacketError> {
         let mut offset = 0;
         let eth = packet.read::<EthHdr>(offset)?;
