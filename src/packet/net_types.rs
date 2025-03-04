@@ -113,11 +113,11 @@ pub mod EtherType {
     /// The `EtherType` repr
     pub type Enum = u16;
 
-    /// The payload is an [`Ipv4Hdr`]
+    /// The payload is an [`super::Ipv4Hdr`]
     pub const Ipv4: Enum = 0x0800_u16.to_be();
     /// [Address Resolution Protocol](https://en.wikipedia.org/wiki/Address_Resolution_Protocol)
     pub const Arp: Enum = 0x0806_u16.to_be();
-    /// The payload is an [`Ipv6Hdr`]
+    /// The payload is an [`super::Ipv6Hdr`]
     pub const Ipv6: Enum = 0x86dd_u16.to_be();
 }
 
@@ -136,7 +136,7 @@ pub mod IpProto {
     pub const Igmp: Enum = 2;
     /// Transmission Control
     pub const Tcp: Enum = 6;
-    /// [User Datagram](struct@UdpHdr)
+    /// [User Datagram](struct@super::UdpHdr)
     pub const Udp: Enum = 17;
     /// Internet Control Message Protocol for IPv6
     pub const Ipv6Icmp: Enum = 58;
