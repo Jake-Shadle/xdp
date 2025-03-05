@@ -570,6 +570,18 @@ impl Packet {
         offset: usize,
         array: &mut [u8; N],
     ) -> Result<(), PacketError> {
+        struct AssertReasonable<const N: usize>;
+
+        impl<const N: usize> AssertReasonable<N> {
+            const OK: () = assert!(N < 4096, "the array size far too large");
+        }
+
+        const fn assert_reasonable<const N: usize>() {
+            let () = AssertReasonable::<N>::OK;
+        }
+
+        assert_reasonable::<N>();
+
         assert!(
             offset < 4096,
             "'offset' is wildly out of range and indicates a bug"
@@ -638,6 +650,7 @@ impl Packet {
             offset < 4096,
             "'offset' is wildly out of range and indicates a bug"
         );
+        assert!(slice.len() <= 4096, "the slice length is far too large");
 
         if self.tail + slice.len() > self.capacity {
             return Err(PacketError::InvalidPacketLength {});
