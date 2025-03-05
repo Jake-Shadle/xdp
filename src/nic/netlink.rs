@@ -155,7 +155,7 @@ impl<const N: usize> Buf<N> {
 
     #[inline]
     fn read<P: Pod>(&self, off: &mut usize) -> Result<P> {
-        if *off + P::size() > self.len {
+        if *off > N || *off + P::size() > self.len {
             return Err(Error::new(
                 ErrorKind::UnexpectedEof,
                 "received incomplete netlink packet",
@@ -171,12 +171,10 @@ impl<const N: usize> Buf<N> {
 
     #[inline]
     fn write<P: Pod>(&mut self, off: &mut usize, item: P) -> Result<()> {
-        if *off + P::size() > self.len {
-            return Err(Error::new(
-                ErrorKind::UnexpectedEof,
-                "received incomplete netlink packet",
-            ));
-        }
+        assert!(
+            *off < N && *off + P::size() <= self.len,
+            "this indicates a bug in the netlink code, please file an issue"
+        );
 
         // SAFETY: we've validated we'll only write within bounds
         unsafe {
