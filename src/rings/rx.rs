@@ -57,10 +57,8 @@ impl RxRing {
         let (actual, idx) = self.ring.peek(nb as _);
 
         if actual > 0 {
-            let mask = self.ring.mask();
             for i in idx..idx + actual {
-                // SAFETY: The mask ensures the index is always within range
-                let desc = unsafe { *self.ring.0.ring.get_unchecked(i & mask) };
+                let desc = self.ring.get(i);
                 packets.push_front(
                     // SAFETY: The user is responsible for the lifetime of the
                     // packets we are returning

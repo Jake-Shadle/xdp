@@ -163,6 +163,9 @@ struct XskRing<T: 'static> {
     cached_consumed: u32,
     /// Total number of entries in the ring
     count: u32,
+    /// Mask for indexing ops, since rings are required to be power of 2 this
+    /// lets us get away with a simple `&` instead of `%`
+    mask: usize,
 }
 
 /// Creates a memory map for a ring
@@ -196,6 +199,7 @@ fn map_ring<T>(
             producer,
             consumer,
             count,
+            mask: count as usize - 1,
             ring,
             cached_produced: 0,
             cached_consumed: 0,
@@ -210,8 +214,11 @@ struct XskProducer<T: 'static>(XskRing<T>);
 
 impl<T> XskProducer<T> {
     #[inline]
-    fn mask(&self) -> usize {
-        self.0.count as usize - 1
+    fn set(&mut self, i: usize, item: T) {
+        // SAFETY: The mask ensures the index is always within range
+        unsafe {
+            *self.0.ring.get_unchecked_mut(i & self.0.mask) = item;
+        }
     }
 
     /// The equivalent of [`xsk_ring_prod__reserve`](https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_prod__reserve/)
@@ -258,10 +265,11 @@ impl<T> XskProducer<T> {
 /// Used for rx and completion rings where userspace is the consumer
 struct XskConsumer<T: 'static>(XskRing<T>);
 
-impl<T> XskConsumer<T> {
+impl<T: Copy> XskConsumer<T> {
     #[inline]
-    fn mask(&self) -> usize {
-        self.0.count as usize - 1
+    fn get(&self, i: usize) -> T {
+        // SAFETY: The mask ensures the index is always within range
+        unsafe { *self.0.ring.get_unchecked(i & self.0.mask) }
     }
 
     /// The equivalent of [`xsk_ring_cons__peek`](https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_cons__peek/)
