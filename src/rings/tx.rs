@@ -71,7 +71,10 @@ impl TxRing {
                     unreachable!()
                 };
 
-                self.ring[i & mask] = packet.into();
+                // SAFETY: The mask ensures the index is always within range
+                unsafe {
+                    *self.ring.0.ring.get_unchecked_mut(i & mask) = packet.into();
+                }
             }
 
             self.ring.submit(actual as _);

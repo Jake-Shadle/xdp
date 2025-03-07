@@ -51,7 +51,8 @@ impl CompletionRing {
         if actual > 0 {
             let mask = self.ring.mask();
             for i in idx..idx + actual {
-                let addr = self.ring[i & mask];
+                // SAFETY: The mask ensures the index is always within range
+                let addr = unsafe { *self.ring.0.ring.get_unchecked(i & mask) };
                 umem.free_addr(addr);
             }
 
@@ -76,7 +77,8 @@ impl CompletionRing {
         if actual > 0 {
             let mask = self.ring.mask();
             for (ts, i) in timestamps.iter_mut().zip(idx..idx + actual) {
-                let addr = self.ring[i & mask];
+                // SAFETY: The mask ensures the index is always within range
+                let addr = unsafe { *self.ring.0.ring.get_unchecked(i & mask) };
                 *ts = umem.free_get_timestamp(addr);
             }
 

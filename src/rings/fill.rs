@@ -62,7 +62,10 @@ impl FillRing {
         if actual > 0 {
             let mask = self.ring.mask();
             for i in idx..idx + actual {
-                self.ring[i & mask] = available.pop_front().unwrap();
+                // SAFETY: The mask ensures the index is always within range
+                unsafe {
+                    *self.ring.0.ring.get_unchecked_mut(i & mask) = available.pop_front().unwrap();
+                }
             }
 
             self.ring.submit(actual as _);

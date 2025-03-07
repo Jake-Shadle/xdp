@@ -255,24 +255,6 @@ impl<T> XskProducer<T> {
     }
 }
 
-impl<T> std::ops::Index<usize> for XskProducer<T> {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        // SAFETY: each ring impl ensures the index is valid
-        unsafe { self.0.ring.get_unchecked(index) }
-    }
-}
-
-impl<T> std::ops::IndexMut<usize> for XskProducer<T> {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        // SAFETY: each ring impl ensures the index is valid
-        unsafe { self.0.ring.get_unchecked_mut(index) }
-    }
-}
-
 /// Used for rx and completion rings where userspace is the consumer
 struct XskConsumer<T: 'static>(XskRing<T>);
 
@@ -314,16 +296,5 @@ impl<T> XskConsumer<T> {
     #[inline]
     fn release(&mut self, nb: u32) {
         self.0.consumer.fetch_add(nb, Ordering::Release);
-    }
-}
-
-impl<T> std::ops::Index<usize> for XskConsumer<T> {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        // SAFETY: Since we force power of 2 the same as libxdp, we know
-        // it will always be within bounds
-        unsafe { self.0.ring.get_unchecked(index) }
     }
 }
