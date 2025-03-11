@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Fixed
+- [PR#20](https://github.com/Jake-Shadle/xdp/pull/20) changed `EtherType` and `IpProto` from enums to scoped constants to avoid UB in the presence of invalid/corrupt data that didn't match a variant. Also removed a bunch of the `IpProto` variants as most will never be used, and since it's now scoped constants users can provide their own constants without needing them in the lib themselves. Resolved [#19](https://github.com/Jake-Shadle/xdp/issues/19).
+- [PR#23](https://github.com/Jake-Shadle/xdp/pull/23) added sanity checks to avoid subtraction underflow if the user provides wildly out of range offsets and/or slices to `Packet` methods.
+- [PR#23](https://github.com/Jake-Shadle/xdp/pull/23) fixed a bug in `Packet::array_at_offset` where the offset was incorrect if `head` was not 0.
+- [PR#23](https://github.com/Jake-Shadle/xdp/pull/23) added a check in `UdpHeader::parse_packet` to ensure the UDP length matches the packet buffer length.
+
+### Changed
+- [PR#22](https://github.com/Jake-Shadle/xdp/pull/22) removed the `Index/Mut` impls from `XskProducer/Consumer` as they were unneccessary fluff in favor of much simpler internal methods.
+- [PR#23](https://github.com/Jake-Shadle/xdp/pull/23) changed `data_offset` and `data_length` to just `data`, a range that is convertible to/from `std::ops::Range<usize>`. `data_length` is now a method that just returns `data.end - data.start`.
+
+### Added
+- [PR#23](https://github.com/Jake-Shadle/xdp/pull/23) added `Packet::append` as a simpler way to add data to the tail of the packet.
+- [PR#23](https://github.com/Jake-Shadle/xdp/pull/23) added `csum::DataChecksum` as a simpler way to calculate the checksum of the data portion of a payload. `UdpHeaders::calc_checksum` now uses this instead of separate length and checksum arguments.
+
 ## [0.6.0] - 2025-03-04
 ### Changed
 - [PR#16](https://github.com/Jake-Shadle/xdp/pull/16) changed `RxRing` and `TxRing` to use the new `slab::Slab` trait.
