@@ -121,8 +121,8 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 .expect("not a UDP packet");
 
             // For this packet, we calculate the full checksum
-            packet.adjust_tail(-(udp.data_length as i32)).unwrap();
-            packet.insert(udp.data_offset, serverp).unwrap();
+            packet.adjust_tail(-(udp.data_length() as i32)).unwrap();
+            packet.insert(udp.data.start, serverp).unwrap();
 
             let nt::IpHdr::V4(mut copy) = udp.ip else {
                 unreachable!()
@@ -173,8 +173,8 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 .expect("failed to parse packet")
                 .expect("not a UDP packet");
 
-            packet.adjust_tail(-(udp.data_length as i32)).unwrap();
-            packet.insert(udp.data_offset, serverp).unwrap();
+            packet.adjust_tail(-(udp.data_length() as i32)).unwrap();
+            packet.insert(udp.data.start, serverp).unwrap();
 
             let nt::IpHdr::V4(mut copy) = udp.ip else {
                 unreachable!()

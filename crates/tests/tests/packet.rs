@@ -143,8 +143,8 @@ fn udp_send() {
         data_offset..data_offset + payload.len(),
     );
 
-    udp.set_packet_headers(&mut packet, false).unwrap();
-    packet.insert(udp.data_offset, &payload).unwrap();
+    udp.set_packet_headers(&mut packet).unwrap();
+    packet.insert(udp.data.start, &payload).unwrap();
 
     let check = packet.calc_udp_checksum().unwrap();
 
