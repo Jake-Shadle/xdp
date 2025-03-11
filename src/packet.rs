@@ -4,8 +4,12 @@
 pub mod csum;
 pub mod net_types;
 
-use crate::libc;
+use crate::{libc, unlikely};
 use std::fmt;
+
+/// The maximum size of an XDP chunk is 4k, so any offsets or sizes larger than
+/// that indicates calling code is probably not correct
+const SANE: usize = 4096;
 
 /// Errors that can occur when reading/writing [`Packet`] contents
 #[derive(Debug)]
@@ -423,16 +427,18 @@ impl Packet {
     /// ```
     #[inline]
     pub fn read<T: Pod>(&self, offset: usize) -> Result<T, PacketError> {
-        assert!(
-            offset < 4096,
-            "'offset' is wildly out of range and indicates a bug"
-        );
+        if unlikely(offset >= SANE) {
+            return Err(PacketError::InvalidOffset {
+                offset,
+                length: self.len(),
+            });
+        }
 
         let start = self.head + offset;
         if start > self.tail {
             return Err(PacketError::InvalidOffset {
                 offset,
-                length: self.tail - self.head,
+                length: self.len(),
             });
         }
 
@@ -504,16 +510,18 @@ impl Packet {
     /// ```
     #[inline]
     pub fn write<T: Pod>(&mut self, offset: usize, item: T) -> Result<(), PacketError> {
-        assert!(
-            offset < 4096,
-            "'offset' is wildly out of range and indicates a bug"
-        );
+        if unlikely(offset >= SANE) {
+            return Err(PacketError::InvalidOffset {
+                offset,
+                length: self.len(),
+            });
+        }
 
         let start = self.head + offset;
         if start > self.tail {
             return Err(PacketError::InvalidOffset {
                 offset,
-                length: self.tail - self.head,
+                length: self.len(),
             });
         }
 
@@ -582,10 +590,12 @@ impl Packet {
 
         assert_reasonable::<N>();
 
-        assert!(
-            offset < 4096,
-            "'offset' is wildly out of range and indicates a bug"
-        );
+        if unlikely(offset >= SANE) {
+            return Err(PacketError::InvalidOffset {
+                offset,
+                length: self.len(),
+            });
+        }
 
         let start = self.head + offset;
         if start + N > self.tail {
@@ -646,15 +656,9 @@ impl Packet {
     /// ```
     #[inline]
     pub fn insert(&mut self, offset: usize, slice: &[u8]) -> Result<(), PacketError> {
-        assert!(
-            offset < 4096,
-            "'offset' is wildly out of range and indicates a bug"
-        );
-        assert!(slice.len() <= 4096, "the slice length is far too large");
-
-        if self.tail + slice.len() > self.capacity {
+        if unlikely(slice.len() > SANE) || self.tail + slice.len() > self.capacity {
             return Err(PacketError::InvalidPacketLength {});
-        } else if offset > self.tail {
+        } else if offset > self.tail || unlikely(offset >= SANE) {
             return Err(PacketError::InvalidOffset {
                 offset,
                 length: self.len(),
