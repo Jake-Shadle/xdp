@@ -309,3 +309,21 @@ fn rejects_invalid_udp_length() {
         assert!(UdpHeaders::parse_packet(&packet).is_err());
     }
 }
+
+#[test]
+#[should_panic]
+fn data_range() {
+    let mut buf = [0u8; 2 * 1024];
+    let mut packet = Packet::testing_new(&mut buf);
+
+    const DATA: &[u8] = &[0x43; 31];
+
+    packet.append(DATA).unwrap();
+    assert_eq!(packet.len(), DATA.len());
+
+    let mut range: xdp::packet::net_types::DataRange = (0..DATA.len()).into();
+    assert_eq!(&packet[range], DATA);
+
+    range.start = range.end + 1;
+    dbg!(&packet[range]);
+}

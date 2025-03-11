@@ -39,10 +39,3 @@ pub use rings::{
     CompletionRing, FillRing, RingConfig, RingConfigBuilder, Rings, RxRing, TxRing,
     WakableFillRing, WakableRings, WakableTxRing,
 };
-
-// TODO: Replace with `std::intrinsics::unlikely` if/when it is stabilized
-// https://github.com/rust-lang/rust/issues/136873
-#[inline(always)]
-pub(crate) const fn unlikely<T>(x: T) -> T {
-    x
-}

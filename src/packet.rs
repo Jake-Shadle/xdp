@@ -4,12 +4,19 @@
 pub mod csum;
 pub mod net_types;
 
-use crate::{libc, unlikely};
+use crate::libc;
 use std::fmt;
 
 /// The maximum size of an XDP chunk is 4k, so any offsets or sizes larger than
 /// that indicates calling code is probably not correct
 const SANE: usize = 4096;
+
+// TODO: Replace with `std::intrinsics::unlikely` if/when it is stabilized
+// https://github.com/rust-lang/rust/issues/136873
+#[inline(always)]
+pub(crate) const fn unlikely<T>(x: T) -> T {
+    x
+}
 
 /// Errors that can occur when reading/writing [`Packet`] contents
 #[derive(Debug)]
