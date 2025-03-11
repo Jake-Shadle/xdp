@@ -139,7 +139,7 @@ macro_rules! slab {
 
                 let index = self.read as usize % N;
                 self.read = self.read.wrapping_add(1);
-                Some(self.ring[index].inner_copy())
+                Some(self.ring[index].__inner_copy())
             }
 
             /// Pushes a packet to the front, returning `Some` if the slab is at capacity

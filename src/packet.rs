@@ -756,7 +756,7 @@ impl Packet {
 
     #[doc(hidden)]
     #[inline]
-    pub fn inner_copy(&mut self) -> Self {
+    pub fn __inner_copy(&mut self) -> Self {
         Self {
             data: self.data,
             capacity: self.capacity,
