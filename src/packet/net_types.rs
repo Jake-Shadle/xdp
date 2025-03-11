@@ -640,9 +640,9 @@ impl UdpHeaders {
     ///
     /// assert_eq!(udp_hdrs.udp.source.host(), 50000);
     ///
-    /// assert_eq!(udp_hdrs.data_offset, nt::EthHdr::LEN + nt::Ipv4Hdr::LEN + nt::UdpHdr::LEN);
-    /// assert_eq!(udp_hdrs.data_length, DATA_LEN);
-    /// assert_eq!(&packet[udp_hdrs.data_offset..udp_hdrs.data_offset + udp_hdrs.data_length], &[0xf0; DATA_LEN]);
+    /// assert_eq!(udp_hdrs.data.start, nt::EthHdr::LEN + nt::Ipv4Hdr::LEN + nt::UdpHdr::LEN);
+    /// assert_eq!(udp_hdrs.data_length(), DATA_LEN);
+    /// assert_eq!(&packet[udp_hdrs.data], &[0xf0; DATA_LEN]);
     /// ```
     pub fn parse_packet(packet: &super::Packet) -> Result<Option<Self>, super::PacketError> {
         let mut offset = 0;
