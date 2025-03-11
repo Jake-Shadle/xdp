@@ -130,22 +130,21 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
             std::mem::swap(&mut copy.destination, &mut copy.source);
             copy.time_to_live -= 1;
 
-            let mut new = nt::UdpHeaders {
-                eth: nt::EthHdr {
+            let mut new = nt::UdpHeaders::new(
+                nt::EthHdr {
                     source: udp.eth.destination,
                     destination: udp.eth.source,
                     ether_type: udp.eth.ether_type,
                 },
-                ip: nt::IpHdr::V4(copy),
-                udp: nt::UdpHdr {
+                nt::IpHdr::V4(copy),
+                nt::UdpHdr {
                     destination: udp.udp.source,
                     source: sport.into(),
                     length: 0.into(),
                     check: 0,
                 },
-                data_offset: udp.data_offset,
-                data_length: serverp.len(),
-            };
+                udp.data.start..udp.data.start + serverp.len(),
+            );
 
             // For this packet, we calculate the full checksum
             let data_checksum = csum::partial(serverp, 0);
@@ -184,23 +183,21 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
             std::mem::swap(&mut copy.destination, &mut copy.source);
             copy.time_to_live -= 1;
 
-            let mut new = nt::UdpHeaders {
-                eth: nt::EthHdr {
+            let mut new = nt::UdpHeaders::new(
+                nt::EthHdr {
                     source: udp.eth.destination,
                     destination: udp.eth.source,
                     ether_type: udp.eth.ether_type,
                 },
-                ip: nt::IpHdr::V4(copy),
-                udp: nt::UdpHdr {
+                nt::IpHdr::V4(copy),
+                nt::UdpHdr {
                     destination: udp.udp.source,
                     source: sport.into(),
                     length: 0.into(),
                     check: 0,
                 },
-                data_offset: udp.data_offset,
-                data_length: serverp.len(),
-            };
-            new.set_packet_headers(&mut packet, true).unwrap();
+                udp.data.start..udp.data.start + serverp.len(),
+            );
             println!(
                 "partial checksum: {:04x}",
                 packet.calc_udp_checksum().unwrap()

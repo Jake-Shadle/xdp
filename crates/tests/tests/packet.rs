@@ -125,22 +125,23 @@ fn udp_send() {
     ipv6.reset(64, nt::IpProto::Udp);
     ipv6.source = [10; 16];
     ipv6.destination = [1; 16];
-    let mut udp = UdpHeaders {
-        eth: nt::EthHdr {
+    let data_offset = nt::EthHdr::LEN + nt::Ipv6Hdr::LEN + nt::UdpHdr::LEN;
+
+    let mut udp = UdpHeaders::new(
+        nt::EthHdr {
             source: MacAddress([1; 6]),
             destination: MacAddress([2; 6]),
             ether_type: nt::EtherType::Ipv6,
         },
-        ip: nt::IpHdr::V6(ipv6),
-        udp: nt::UdpHdr {
+        nt::IpHdr::V6(ipv6),
+        nt::UdpHdr {
             source: 8900.into(),
             destination: 9001.into(),
             length: 0.into(),
             check: 0,
         },
-        data_offset: nt::EthHdr::LEN + nt::Ipv6Hdr::LEN + nt::UdpHdr::LEN,
-        data_length: payload.len(),
-    };
+        data_offset..data_offset + payload.len(),
+    );
 
     udp.set_packet_headers(&mut packet, false).unwrap();
     packet.insert(udp.data_offset, &payload).unwrap();
@@ -213,10 +214,7 @@ fn parses_ipv4() {
             destination: Ipv4Addr::new(192, 168, 1, 1),
         }
     );
-    assert_eq!(
-        &packet[udp.data_offset..udp.data_offset + udp.data_length],
-        IPV4_DATA
-    );
+    assert_eq!(&packet[udp.data], IPV4_DATA);
 }
 
 /// Ensures we can parse an IPv6 UDP packet

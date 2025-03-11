@@ -517,6 +517,41 @@ impl PartialEq<IpAddresses> for IpHdr {
     }
 }
 
+/// A small replacement for `std::ops::Range<usize>` due to the annoying lack
+/// of `Copy`
+#[derive(Copy, Clone)]
+pub struct DataRange {
+    /// The lower bound of the range (inclusive).
+    pub start: usize,
+    /// The upper bound of the range (exclusive).
+    pub end: usize,
+}
+
+impl From<std::ops::Range<usize>> for DataRange {
+    #[inline]
+    fn from(value: std::ops::Range<usize>) -> Self {
+        Self {
+            start: value.start,
+            end: value.end,
+        }
+    }
+}
+
+impl fmt::Debug for DataRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
+    }
+}
+
+impl std::ops::Index<DataRange> for [u8] {
+    type Output = [u8];
+
+    #[inline]
+    fn index(&self, index: DataRange) -> &Self::Output {
+        self.index(index.start..index.end)
+    }
+}
+
 /// A [UDP](https://en.wikipedia.org/wiki/User_Datagram_Protocol) packet
 #[cfg_attr(feature = "__debug", derive(Debug))]
 pub struct UdpHeaders {
@@ -526,13 +561,22 @@ pub struct UdpHeaders {
     pub ip: IpHdr,
     /// The transport header
     pub udp: UdpHdr,
-    /// The offset from the beginning of the packet where the data payload begins
-    pub data_offset: usize,
-    /// The length of the data payload
-    pub data_length: usize,
+    /// The range where the packet's data is located
+    pub data: DataRange,
 }
 
 impl UdpHeaders {
+    /// Creates a [`Self`]
+    #[inline]
+    pub fn new(eth: EthHdr, ip: IpHdr, udp: UdpHdr, data: impl Into<DataRange>) -> Self {
+        Self {
+            eth,
+            ip,
+            udp,
+            data: data.into(),
+        }
+    }
+
     /// Attempts to parse a [`Self`] from a packet.
     ///
     /// Returns `Ok(None)` if the packet doesn't seem corrupted, but doesn't
@@ -632,14 +676,22 @@ impl UdpHeaders {
         };
 
         let udp = packet.read::<UdpHdr>(offset)?;
-        let data_length = udp.length.host() as usize - UdpHdr::LEN;
+        let data_length = udp.length.host() as usize;
+        if offset + data_length != packet.len() {
+            return Err(super::PacketError::InsufficientData {
+                offset,
+                size: data_length,
+                length: packet.len(),
+            });
+        }
+
+        let start = offset + UdpHdr::LEN;
 
         Ok(Some(Self {
             eth,
             ip,
             udp,
-            data_offset: offset + UdpHdr::LEN,
-            data_length,
+            data: (start..start + data_length - UdpHdr::LEN).into(),
         }))
     }
 
@@ -659,6 +711,12 @@ impl UdpHeaders {
                 Ipv6Hdr::LEN
             }
             + UdpHdr::LEN
+    }
+
+    /// The length of the data portion of the packet
+    #[inline(always)]
+    pub fn data_length(&self) -> usize {
+        self.data.end - self.data.start
     }
 
     /// Decrements the hop counter
@@ -709,30 +767,21 @@ impl UdpHeaders {
 
     /// Writes the headers to the front of the packet buffer.
     ///
-    /// If `calculate_ipv4_checksum` is `true`, the IPv4 header checksum is
-    /// calculated, otherwise it is set to 0, as the IPv4 checksum is optional
-    /// for UDP packets
-    ///
     /// # Errors
     ///
     /// The packet buffer must have enough space for all of the headers
     pub fn set_packet_headers(
         &mut self,
         packet: &mut super::Packet,
-        calculate_ipv4_checksum: bool,
     ) -> Result<(), super::PacketError> {
         let mut offset = EthHdr::LEN;
 
-        let length = (self.data_length + UdpHdr::LEN) as u16;
+        let length = (self.data.end - self.data.start + UdpHdr::LEN) as u16;
 
         self.eth.ether_type = match &mut self.ip {
             IpHdr::V4(v4) => {
                 v4.total_length = (length + Ipv4Hdr::LEN as u16).into();
-                if calculate_ipv4_checksum {
-                    v4.calc_checksum();
-                } else {
-                    v4.check = 0;
-                }
+                v4.calc_checksum();
                 packet.write(offset, *v4)?;
                 offset += Ipv4Hdr::LEN;
                 EtherType::Ipv4
