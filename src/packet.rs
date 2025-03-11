@@ -691,6 +691,31 @@ impl Packet {
         Ok(())
     }
 
+    /// Inserts a slice at tail of the packet
+    ///
+    /// # Errors
+    ///
+    /// - The current tail + `slice.len()` would exceed the capacity
+    #[inline]
+    pub fn append(&mut self, slice: &[u8]) -> Result<(), PacketError> {
+        if unlikely(slice.len() > SANE) || self.tail + slice.len() > self.capacity {
+            return Err(PacketError::InvalidPacketLength {});
+        }
+
+        // SAFETY: we validate we're within bounds before doing any writes to the
+        // pointer, which is alive as long as the owning mmap
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                slice.as_ptr(),
+                self.data.byte_offset(self.tail as _),
+                slice.len(),
+            );
+        }
+
+        self.tail += slice.len();
+        Ok(())
+    }
+
     /// Sets the specified [TX metadata](https://github.com/torvalds/linux/blob/ae90f6a6170d7a7a1aa4fddf664fbd093e3023bc/Documentation/networking/xsk-tx-metadata.rst)
     ///
     /// Calling this function requires that the [`crate::umem::UmemCfgBuilder::tx_checksum`]
@@ -809,7 +834,7 @@ impl From<Packet> for libc::xdp::xdp_desc {
 impl std::io::Write for Packet {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self.insert(self.tail - self.head, buf) {
+        match self.append(buf) {
             Ok(()) => Ok(buf.len()),
             Err(_) => Err(std::io::Error::new(
                 std::io::ErrorKind::StorageFull,

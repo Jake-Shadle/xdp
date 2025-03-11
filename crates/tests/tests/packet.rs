@@ -72,6 +72,18 @@ fn simple() {
 
     packet.adjust_tail(-(packet.len() as i32)).unwrap();
     assert!(packet.is_empty());
+
+    packet
+        .insert(0, &0xf3f3f3f3f3f3f3f3u64.to_ne_bytes())
+        .unwrap();
+    packet.append(&0x1212121212121212u64.to_ne_bytes()).unwrap();
+
+    assert_eq!(packet.len(), 16);
+    let mut arr6 = [0u8; 8];
+    packet.array_at_offset(0, &mut arr6).unwrap();
+    assert_eq!(0xf3f3f3f3f3f3f3f3, u64::from_ne_bytes(arr6));
+    packet.array_at_offset(8, &mut arr6).unwrap();
+    assert_eq!(0x1212121212121212, u64::from_ne_bytes(arr6));
 }
 
 #[test]
