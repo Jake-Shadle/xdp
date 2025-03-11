@@ -606,13 +606,9 @@ impl Packet {
             });
         }
 
-        // SAFETY: we've validated the range of data we are reading is valid
+        // SAFETY: we've validated the range of data we are reading
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.data.byte_offset(offset as _),
-                array.as_mut_ptr(),
-                N,
-            );
+            std::ptr::copy_nonoverlapping(self.data.byte_offset(start as _), array.as_mut_ptr(), N);
         }
         Ok(())
     }

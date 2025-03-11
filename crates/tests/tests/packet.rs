@@ -31,6 +31,9 @@ fn simple() {
         tot_len - xdp::libc::xdp::XDP_PACKET_HEADROOM as usize,
     );
 
+    packet.adjust_tail(21).unwrap();
+    packet.adjust_head(21).unwrap();
+
     let val = b"deadbeef";
 
     packet.insert(0, val).unwrap();
