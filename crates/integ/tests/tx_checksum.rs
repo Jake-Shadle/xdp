@@ -147,9 +147,8 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
             );
 
             // For this packet, we calculate the full checksum
-            let data_checksum = csum::partial(serverp, 0);
-            let full_checksum = new.calc_checksum(serverp.len(), data_checksum);
-            new.set_packet_headers(&mut packet, true).unwrap();
+            let full_checksum = new.calc_checksum(csum::DataChecksum::calculate(serverp));
+            new.set_packet_headers(&mut packet).unwrap();
             println!("Full checksum: {full_checksum:04x}");
 
             slab.push_front(packet);
@@ -198,6 +197,7 @@ fn do_checksum_test(software: bool, vpair: &VethPair) {
                 },
                 udp.data.start..udp.data.start + serverp.len(),
             );
+            new.set_packet_headers(&mut packet).unwrap();
             println!(
                 "partial checksum: {:04x}",
                 packet.calc_udp_checksum().unwrap()

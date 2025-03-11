@@ -3,7 +3,7 @@
 use etherparse::PacketBuilder;
 use std::net::*;
 use tests::*;
-use xdp::packet::{net_types::*, *};
+use xdp::packet::{csum, net_types::*, *};
 
 /// Ensures we generate the correct IPv4 header checksum
 #[test]
@@ -80,8 +80,7 @@ fn combines_partial_checksums() {
         let expected = udp.udp.check;
         assert_eq!(packet.calc_udp_checksum().unwrap(), expected);
 
-        let data_checksum = csum::partial(LARGER, 0);
-        udp.calc_checksum(LARGER.len(), data_checksum);
+        udp.calc_checksum(csum::DataChecksum::calculate(LARGER));
         assert_eq!(udp.udp.check, expected);
     }
 
@@ -101,8 +100,7 @@ fn combines_partial_checksums() {
         let expected = udp.udp.check;
         assert_eq!(packet.calc_udp_checksum().unwrap(), expected);
 
-        let data_checksum = csum::partial(LARGER, 0);
-        udp.calc_checksum(LARGER.len(), data_checksum);
+        udp.calc_checksum(csum::DataChecksum::calculate(LARGER));
         assert_eq!(udp.udp.check, expected);
     }
 }

@@ -218,6 +218,59 @@ pub fn partial(mut buf: &[u8], sum: u32) -> u32 {
     finalize(sum)
 }
 
+/// The checksum of a block of data
+#[derive(Copy, Clone)]
+pub struct DataChecksum {
+    checksum: u32,
+    length: usize,
+}
+
+impl DataChecksum {
+    /// Calculates the checksum of the specified slice
+    ///
+    /// # Errors
+    ///
+    /// This method panics if the slice is more than 4KiB in length, as that
+    /// indicates a bug in the caller as `crate::Packet` has a maximum capacity
+    /// of (slightly less than) 4KiB
+    #[inline]
+    pub fn calculate(data: &[u8]) -> Self {
+        assert!(
+            data.len() <= 4096,
+            "the specified slice is too large to fit in a Packet"
+        );
+
+        Self {
+            checksum: partial(data, 0),
+            length: data.len(),
+        }
+    }
+
+    /// Calculates the checksum of the specified slice, but only if the specified
+    /// packet doesn't support checksum offload
+    ///
+    /// # Errors
+    ///
+    /// This method panics if the slice is more than 4KiB in length, as that
+    /// indicates a bug in the caller as `crate::Packet` has a maximum capacity
+    /// of (slightly less than) 4KiB
+    pub fn calculate_if_needed(data: &[u8], packet: &super::Packet) -> Self {
+        assert!(
+            data.len() <= 4096,
+            "the specified slice is too large to fit in a Packet"
+        );
+
+        Self {
+            checksum: if packet.can_offload_checksum() {
+                0
+            } else {
+                partial(data, 0)
+            },
+            length: data.len(),
+        }
+    }
+}
+
 use crate::packet::net_types as nt;
 
 /// Errors that can occur during UDP checksum calculation
@@ -400,11 +453,11 @@ impl nt::UdpHeaders {
     /// Given an already calculated checksum for the data payload, or 0 if using
     /// tx checksum offload, checksums the pseudo IP and UDP header
     #[inline]
-    pub fn calc_checksum(&mut self, length: usize, data_checksum: u32) -> u16 {
-        self.data_length = length;
+    pub fn calc_checksum(&mut self, data_checksum: DataChecksum) -> u16 {
+        self.data.end = self.data.start + data_checksum.length;
 
-        let mut sum = data_checksum as u64;
-        let data_len = self.data_length + nt::UdpHdr::LEN;
+        let mut sum = data_checksum.checksum as u64;
+        let data_len = data_checksum.length + nt::UdpHdr::LEN;
 
         match &self.ip {
             nt::IpHdr::V4(v4) => {
