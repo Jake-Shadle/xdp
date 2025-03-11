@@ -256,8 +256,53 @@ fn parses_ipv6() {
             destination: DST,
         }
     );
+    assert_eq!(&packet[udp.data], IPV6_DATA);
+}
+
+/// Ensures the UDP length field matches the packet
+#[test]
+fn rejects_invalid_udp_length() {
+    let mut buf = [0u8; 2048];
+    let mut packet = Packet::testing_new(&mut buf);
+
+    PacketBuilder::ethernet2(SRC_MAC.0, DST_MAC.0)
+        .ipv6([20; 16], [33; 16], 64)
+        .udp(5353, 1111)
+        .write(&mut packet, IPV6_DATA)
+        .unwrap();
+
+    let mut udp_hdr: nt::UdpHdr = packet.read(nt::EthHdr::LEN + nt::Ipv6Hdr::LEN).unwrap();
+    assert_eq!(udp_hdr.source.host(), 5353);
+    assert_eq!(udp_hdr.destination.host(), 1111);
     assert_eq!(
-        &packet[udp.data_offset..udp.data_offset + udp.data_length],
-        IPV6_DATA
+        udp_hdr.length.host() as usize,
+        IPV6_DATA.len() + nt::UdpHdr::LEN
     );
+
+    // too long
+    {
+        udp_hdr.length = u16::MAX.into();
+        packet
+            .write(nt::EthHdr::LEN + nt::Ipv6Hdr::LEN, udp_hdr)
+            .unwrap();
+        assert!(UdpHeaders::parse_packet(&packet).is_err());
+    }
+
+    // too short
+    {
+        udp_hdr.length = (nt::UdpHdr::LEN as u16).into();
+        packet
+            .write(nt::EthHdr::LEN + nt::Ipv6Hdr::LEN, udp_hdr)
+            .unwrap();
+        assert!(UdpHeaders::parse_packet(&packet).is_err());
+    }
+
+    // off by 1
+    {
+        udp_hdr.length = ((nt::UdpHdr::LEN + IPV6_DATA.len() + 1) as u16).into();
+        packet
+            .write(nt::EthHdr::LEN + nt::Ipv6Hdr::LEN, udp_hdr)
+            .unwrap();
+        assert!(UdpHeaders::parse_packet(&packet).is_err());
+    }
 }
