@@ -134,15 +134,15 @@ pub enum CsumOffload {
 /// ```
 ///
 /// 1. The first ([`libc::xdp::XDP_PACKET_HEADROOM`]) segment of the buffer is
-///     reserved for kernel usage
+///    reserved for kernel usage
 /// 1. `headroom` is an optional segment that can be configured on the [`crate::umem::UmemCfgBuilder::head_room`]
-///     the packet is allocated from which the kernel will not fill with data,
-///     allowing the packet to grow downwards (eg. IPv4 -> IPv6) without copying
-///     bytes
+///    the packet is allocated from which the kernel will not fill with data,
+///    allowing the packet to grow downwards (eg. IPv4 -> IPv6) without copying
+///    bytes
 /// 1. The next segment is the actual packet contents as received by the NIC or
-///     sent by userspace
+///    sent by userspace
 /// 1. The last segment is the uninitialized portion of the chunk occupied by this
-///     packet, up to the size configured on the owning [`crate::Umem`].
+///    packet, up to the size configured on the owning [`crate::Umem`].
 ///
 /// The packet portion of the packet is then composed of the various layers/data,
 /// for example an IPv4 UDP packet:
@@ -725,11 +725,11 @@ impl Packet {
     /// and/or [`crate::umem::UmemCfgBuilder::tx_timestamp`] were true
     ///
     /// - If `csum` is `CsumOffload::Request`, this will request that the Layer 4
-    ///     checksum computation be offload to the NIC before transmission. Note that
-    ///     this requires that the IP pseudo header checksum be calculated and stored
-    ///     in the same location.
+    ///   checksum computation be offload to the NIC before transmission. Note that
+    ///   this requires that the IP pseudo header checksum be calculated and stored
+    ///   in the same location.
     /// - If `request_timestamp` is true, requests that the NIC write the timestamp
-    ///     the packet was transmitted. This can be retrieved using [`crate::CompletionRing::dequeue_with_timestamps`]
+    ///   the packet was transmitted. This can be retrieved using [`crate::CompletionRing::dequeue_with_timestamps`]
     #[inline]
     pub fn set_tx_metadata(
         &mut self,

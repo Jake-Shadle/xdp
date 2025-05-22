@@ -382,7 +382,7 @@ impl NicIndex {
                         let addr = &*ifaddr.ifa_addr.cast::<socket::sockaddr_in6>();
                         ipv6 = Some(addr.sin6_addr.into());
                     }
-                    _ => continue,
+                    _ => {}
                 }
             }
 
